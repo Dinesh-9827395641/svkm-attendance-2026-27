@@ -1,0 +1,2489 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SVKM School Attendance Manager (Cloud Edition)</title>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- XLSX & jsPDF CDN for Excel and PDF exports -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  body { font-family: 'Inter', sans-serif; }
+  @media print {
+    body * { visibility: hidden; }
+    #printPreviewModal, #printPreviewModal * { visibility: visible; }
+    #printPreviewModal { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: white; z-index: 99999; }
+    @page { size: landscape; margin: 10mm; }
+  }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+<div id="app" class="min-h-screen flex flex-col">
+  
+  <!-- Loading & Auth State Overlay -->
+  <div id="authOverlay" class="fixed inset-0 bg-slate-900/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 text-center animate-fade-in border border-slate-100">
+      <div id="authLogoContainer" class="flex justify-center items-center gap-4 mb-3">
+        <span class="text-6xl">🎓</span>
+      </div>
+      <h1 class="text-2xl font-extrabold text-slate-900" id="authSchoolTitle">SVKM Attendance</h1>
+      <p class="text-xs font-bold text-indigo-600 tracking-wider uppercase mb-6">Cloud & Firebase Powered</p>
+      
+      <div id="authLoadingState" class="py-8">
+        <div class="inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-3"></div>
+        <p class="text-sm font-semibold text-slate-600">Connecting to Firebase & Authenticating...</p>
+      </div>
+
+      <div id="authLoginForm" class="hidden">
+        <div class="flex bg-slate-100 p-1 rounded-xl mb-5 overflow-x-auto">
+          <button type="button" id="tabMasterBtn" onclick="switchLoginTab('master')" class="flex-1 py-2 px-2 rounded-lg text-xs font-bold bg-white text-indigo-600 shadow-sm transition whitespace-nowrap">👑 Admin</button>
+          <button type="button" id="tabClassBtn" onclick="switchLoginTab('class')" class="flex-1 py-2 px-2 rounded-lg text-xs font-bold text-slate-500 hover:text-slate-900 transition whitespace-nowrap">👨‍🏫 Teacher</button>
+          <button type="button" id="tabProxyBtn" onclick="switchLoginTab('proxy')" class="flex-1 py-2 px-2 rounded-lg text-xs font-bold text-slate-500 hover:text-slate-900 transition whitespace-nowrap">👤 Proxy</button>
+        </div>
+
+        <form id="loginFormElement" onsubmit="handleLogin(event)" class="space-y-4 text-left">
+          <div id="classSelectWrap" class="hidden">
+            <label class="block text-xs font-bold text-slate-600 mb-1" id="loginClassLabel">Select Class</label>
+            <select id="loginClassSelect" class="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"></select>
+          </div>
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-bold text-slate-600">Password</label>
+              <button type="button" onclick="showForgotPasswordModal()" class="text-[11px] text-indigo-600 font-bold hover:underline">Forgot Password?</button>
+            </div>
+            <input type="password" id="loginPwd" placeholder="Enter password" required class="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+          </div>
+          <div id="loginErr" class="hidden bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold p-3 rounded-xl"></div>
+          <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-600/20 transition">🔓 Login to Cloud</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Forgot Password Modal -->
+  <div id="forgotPasswordModal" class="hidden fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+      <h3 class="text-base font-bold text-slate-900 mb-2">Admin Password Recovery</h3>
+      <p class="text-xs text-slate-500 mb-4">Security question: <b>Who made this app?</b></p>
+      <input type="text" id="forgotAnswerInput" placeholder="Enter secret answer" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm mb-4">
+      <div id="forgotResultBox" class="hidden mb-4 p-3 bg-indigo-50 text-indigo-800 text-xs font-bold rounded-xl"></div>
+      <div class="flex gap-2">
+        <button onclick="verifyForgotPassword()" class="flex-1 bg-indigo-600 text-white font-bold text-xs py-2.5 rounded-xl">Verify</button>
+        <button onclick="document.getElementById('forgotPasswordModal').classList.add('hidden')" class="flex-1 bg-slate-100 text-slate-700 font-bold text-xs py-2.5 rounded-xl">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Report Preview & Print Modal -->
+  <div id="printPreviewModal" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
+      <div class="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+        <h3 class="text-sm font-extrabold text-slate-900">Report Preview & Download</h3>
+        <div class="flex items-center gap-2">
+          <button onclick="printPreviewDocument()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition">🖨 Print / PDF</button>
+          <button onclick="document.getElementById('printPreviewModal').classList.add('hidden')" class="bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition">✕ Close</button>
+        </div>
+      </div>
+      <div id="previewContentBody" class="p-6 overflow-y-auto flex-1 bg-slate-100"></div>
+    </div>
+  </div>
+
+  <header class="bg-gradient-to-r from-indigo-700 via-indigo-800 to-purple-800 text-white shadow-md sticky top-0 z-40 px-4 py-3 flex items-center justify-between flex-wrap gap-4">
+    <div class="flex items-center gap-3">
+      <div id="hdrLeftLogoContainer" class="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center overflow-hidden border border-white/20 shrink-0">
+        <span class="text-2xl">🎓</span>
+      </div>
+      <div class="text-center sm:text-left">
+        <h1 id="hdrSchool" class="text-base font-bold tracking-tight">SVKM SCHOOL, DHULE</h1>
+        <p id="hdrAddress" class="text-[11px] text-indigo-200">Dhule, Maharashtra</p>
+        <div class="flex items-center justify-center sm:justify-start gap-2 mt-0.5 flex-wrap">
+          <span class="text-[10px] bg-amber-400 text-amber-950 font-extrabold px-2 py-0.5 rounded-full">🔥 Cloud Synced</span>
+          <span id="hdrSub" class="text-xs text-indigo-200">Attendance & records</span>
+        </div>
+      </div>
+      <div id="hdrRightLogoContainer" class="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center overflow-hidden border border-white/20 ml-2 shrink-0">
+        <span class="text-2xl">🏫</span>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3 flex-wrap">
+      <div class="flex items-center gap-1.5 bg-white/10 border border-white/20 px-2.5 py-1.5 rounded-xl">
+        <label class="text-[11px] font-bold text-indigo-200">Session:</label>
+        <select id="globalSessionSelect" onchange="changeGlobalSession(this.value)" class="bg-transparent text-white font-bold text-xs focus:outline-none cursor-pointer">
+        </select>
+      </div>
+      <span id="roleBadge" class="text-xs font-bold px-3 py-1 rounded-full bg-white/15 border border-white/20">—</span>
+      <div id="hdrClassWrap" class="hidden items-center gap-2 bg-white/10 border border-white/20 px-3 py-1.5 rounded-xl">
+        <label class="text-xs font-bold text-indigo-100">Class:</label>
+        <select id="hdrClassSelect" onchange="changeActiveClass(this.value)" class="bg-transparent text-white font-bold text-xs focus:outline-none cursor-pointer">
+          <option value="" class="text-slate-900">Select Class</option>
+        </select>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="downloadJsonBackup()" class="bg-white/15 hover:bg-white/25 text-white text-xs font-bold px-3 py-2 rounded-xl transition">⬇ Backup</button>
+        <input type="file" id="restoreJsonInput" accept=".json" onchange="restoreJsonBackup(event)" class="hidden">
+        <button onclick="document.getElementById('restoreJsonInput').click()" class="bg-white/15 hover:bg-white/25 text-white text-xs font-bold px-3 py-2 rounded-xl transition">⬆ Restore</button>
+      </div>
+      <span id="saveState" class="text-xs font-bold px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200">✓ Live Synced</span>
+      <button onclick="logoutApp()" class="bg-rose-600/80 hover:bg-rose-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition">Logout</button>
+    </div>
+  </header>
+
+  <div class="flex-1 flex flex-col md:flex-row">
+    <nav id="sidebar" class="w-full md:w-64 bg-white border-r border-slate-200 p-3 flex md:flex-col gap-1 overflow-x-auto md:overflow-y-auto shrink-0 shadow-sm z-30"></nav>
+
+    <!-- Main Content Panels -->
+    <main class="flex-1 p-4 md:p-6 max-w-full overflow-x-hidden">
+
+      <!-- School & Session Panel -->
+      <section class="tab-panel hidden" id="tab-school">
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>School & Logo Details</h2>
+          <p class="text-xs text-slate-500 mb-4">Configures school headers, address, and dual logos (left and right) appearing on all printed/downloaded reports.</p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">School Name</label>
+              <input type="text" id="schoolNameInput" onchange="updateSchoolMeta()" placeholder="School Name" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">School Address</label>
+              <input type="text" id="schoolAddressInput" onchange="updateSchoolMeta()" placeholder="Address" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Left Logo (Upload Image File)</label>
+              <input type="file" id="schoolLogoLeftFile" accept="image/*" onchange="handleLogoUpload(event, 'logoLeft')" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Right Logo (Upload Image File)</label>
+              <input type="file" id="schoolLogoRightFile" accept="image/*" onchange="handleLogoUpload(event, 'logoRight')" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+            </div>
+            <div class="md:col-span-2">
+              <label class="block text-xs font-bold text-slate-600 mb-1">Login Screen Main Logo (Upload Image File)</label>
+              <input type="file" id="schoolLogoLoginFile" accept="image/*" onchange="handleLogoUpload(event, 'logoLogin')" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Academic Sessions Management</h2>
+          <p class="text-xs text-slate-500 mb-4">Add new academic sessions. Previous sessions are preserved and fully accessible in view/edit mode for admins.</p>
+          <form onsubmit="addNewSession(event)" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mb-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Session Name</label>
+              <input type="text" id="newSessName" placeholder="e.g. 2027-28" required class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Start Date</label>
+              <input type="date" id="newSessStart" required class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">End Date</label>
+              <input type="date" id="newSessEnd" required class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 rounded-xl transition">➕ Add New Session</button>
+            </div>
+          </form>
+          <div id="sessionsListTable" class="overflow-x-auto"></div>
+        </div>
+
+        <!-- Admins Management -->
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Admin Accounts Management</h2>
+          <p class="text-xs text-slate-500 mb-4">Main admin can add other admin accounts (e.g. Principal, Vice-Principal). Sub-admins cannot reset the master password.</p>
+          <form onsubmit="addNewAdmin(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end mb-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Admin Username / Role Title</label>
+              <input type="text" id="newAdminUser" required placeholder="e.g. Principal" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Password</label>
+              <input type="password" id="newAdminPwd" required placeholder="Password" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 rounded-xl transition">➕ Add Admin</button>
+            </div>
+          </form>
+          <div id="adminListTable" class="overflow-x-auto"></div>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>House Management</h2>
+          <form onsubmit="addHouse(event)" class="flex gap-3 items-end flex-wrap mb-4">
+            <div class="flex-1 min-w-[200px]">
+              <label class="block text-xs font-bold text-slate-600 mb-1">House Name</label>
+              <input type="text" id="houseNameInput" placeholder="e.g. Emerald" required class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Colour</label>
+              <input type="color" id="houseColorInput" value="#4f46e5" class="h-10 w-20 border border-slate-300 rounded-xl p-1 cursor-pointer">
+            </div>
+            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition">➕ Add House</button>
+          </form>
+          <div id="houseListTable" class="overflow-x-auto"></div>
+        </div>
+      </section>
+
+      <!-- Classes Panel -->
+      <section class="tab-panel hidden" id="tab-classes">
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Add New Class</h2>
+          <form onsubmit="addNewClass(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Class Name</label>
+              <input type="text" id="newClassName" placeholder="e.g. I-A, II-B" required class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Class Teacher Name</label>
+              <input type="text" id="newClassTeacher" placeholder="Teacher Full Name" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Password (Optional)</label>
+              <input type="password" id="newClassPwd" placeholder="Default: 123" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div class="md:col-span-3">
+              <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-6 py-2.5 rounded-xl transition">➕ Add Class</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>School Classes List & Sequencing</h2>
+          <p class="text-xs text-slate-500 mb-4">Use the up/down arrows to reorder class sequence across reports. Admins can update class names and class teacher names anytime.</p>
+          <div id="classesListTable" class="overflow-x-auto"></div>
+        </div>
+      </section>
+
+      <section class="tab-panel hidden" id="tab-myclass">
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-4 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Class Statistics & Proxy Teacher</h2>
+          <div id="myClassStatsContainer" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6"></div>
+          
+          <div id="proxyCardWrap" class="border-t border-slate-100 pt-6 mt-6">
+            <h3 class="text-sm font-bold text-slate-900 mb-2">Proxy Teacher Assignment</h3>
+            <p class="text-xs text-slate-500 mb-4">Assign a proxy teacher credential for today. Proxy teachers can only mark attendance for the current date.</p>
+            <form onsubmit="saveProxyTeacher(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">Proxy Username</label>
+                <input type="text" id="proxyUser" placeholder="e.g. proxy_teacher1" required class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">Proxy Password</label>
+                <input type="password" id="proxyPwd" placeholder="Password" required class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+              </div>
+              <div>
+                <button type="submit" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs py-2.5 rounded-xl transition">💾 Save Proxy Credential</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Change Class Password</h2>
+          <form onsubmit="updateClassPassword(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Current Password</label>
+              <input type="password" id="cp_old" required class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">New Password</label>
+              <input type="password" id="cp_new" required class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div class="flex items-end">
+              <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 rounded-xl transition">🔑 Update Password</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- Student Data Entry -->
+      <section class="tab-panel hidden" id="tab-entry">
+        <div id="readOnlyBanner" class="hidden bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold p-3 rounded-xl mb-4">
+          ⚠ Read-Only Mode: You are viewing a past academic session. Only administrators can modify records in past sessions.
+        </div>
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Excel Bulk Import / Export</h2>
+          <div class="flex gap-3 flex-wrap">
+            <button onclick="downloadExcelTemplate()" class="bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-bold px-4 py-2.5 rounded-xl transition">⬇ Download Excel Template</button>
+            <input type="file" id="excelUploadInput" accept=".xlsx,.xls,.csv" onchange="handleExcelUpload(event)" class="hidden">
+            <button id="uploadExcelBtn" onclick="document.getElementById('excelUploadInput').click()" class="bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-bold px-4 py-2.5 rounded-xl transition">⬆ Upload Filled Excel</button>
+          </div>
+        </div>
+
+        <div id="studentFormCard" class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 id="studentFormTitle" class="text-base font-bold text-slate-900 mb-4 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Add Student</h2>
+          <form onsubmit="handleStudentForm(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <input type="hidden" id="editStudentId">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">G.R. No. (General Register) *</label>
+              <input type="text" id="s_gr" required placeholder="e.g. 1042" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Student Name *</label>
+              <input type="text" id="s_name" required placeholder="Full Name" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Gender</label>
+              <select id="s_gender" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                <option value="">Select Gender</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Date of Birth</label>
+              <input type="date" id="s_dob" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Father's Name</label>
+              <input type="text" id="s_father" placeholder="Father Name" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Mother's Name</label>
+              <input type="text" id="s_mother" placeholder="Mother Name" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">House</label>
+              <select id="s_house" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm"></select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Contact No. 1</label>
+              <input type="text" id="s_c1" placeholder="Mobile Number" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Contact No. 2</label>
+              <input type="text" id="s_c2" placeholder="Secondary Mobile" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Admission Date *</label>
+              <input type="date" id="s_admit" required class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Left Date (If Left)</label>
+              <input type="date" id="s_left" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div class="md:col-span-3 flex gap-2 pt-2">
+              <button type="submit" id="studentSubmitBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-6 py-2.5 rounded-xl transition">💾 Save Student</button>
+              <button type="button" onclick="resetStudentForm()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl transition">Clear</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <div class="flex justify-between items-center mb-4 flex-wrap gap-3">
+            <h2 class="text-base font-bold text-slate-900 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Student List</h2>
+            <input type="text" id="studentSearch" oninput="renderStudentsList()" placeholder="Search students..." class="border border-slate-300 rounded-xl px-3 py-1.5 text-xs w-full sm:w-auto">
+          </div>
+          <div id="studentsTableContainer" class="overflow-x-auto"></div>
+        </div>
+      </section>
+
+      <section class="tab-panel hidden" id="tab-register">
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <div class="flex justify-between items-center mb-4 flex-wrap gap-4">
+            <h2 class="text-base font-bold text-slate-900 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Attendance Register</h2>
+            <div class="flex gap-3 flex-wrap items-center">
+              <div>
+                <label class="block text-[10px] font-bold text-slate-500 uppercase">Month</label>
+                <input type="month" id="regMonthInput" onchange="renderAttendanceRegister()" class="border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-semibold">
+              </div>
+              <div class="flex items-center pt-4">
+                <label class="text-xs font-semibold flex items-center gap-1 cursor-pointer"><input type="checkbox" id="sundayHolidayToggle" onchange="toggleSundayHoliday(this.checked)" checked> Sundays are holidays</label>
+              </div>
+              <div id="registerActionBtns" class="flex gap-2 pt-3">
+                <button onclick="markAllPresent()" class="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-bold px-3 py-1.5 rounded-xl transition">✅ Mark All P</button>
+                <button onclick="clearMonthAttendance()" class="bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold px-3 py-1.5 rounded-xl transition">🗑 Clear Month</button>
+              </div>
+            </div>
+          </div>
+          <div id="attendanceStatsSummary" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"></div>
+          <div id="registerTableContainer" class="overflow-x-auto max-h-[600px]"></div>
+        </div>
+      </section>
+
+      <!-- Holidays Panel -->
+      <section class="tab-panel hidden" id="tab-holiday">
+        <div id="holidayFormCard" class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Add Holiday (School-wide or Class-specific)</h2>
+          <form onsubmit="addHoliday(event)" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Date *</label>
+              <input type="date" id="h_date" required class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Reason *</label>
+              <input type="text" id="h_reason" required placeholder="e.g. Sports Day" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Apply To</label>
+              <select id="h_classTarget" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                <option value="ALL">All School (Common)</option>
+              </select>
+            </div>
+            <div>
+              <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 rounded-xl transition">➕ Add Holiday</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Holiday Calendar</h2>
+          <div id="holidayTableContainer" class="overflow-x-auto"></div>
+        </div>
+      </section>
+
+      <!-- Monthly Summary & Statistics -->
+      <section class="tab-panel hidden" id="tab-summary">
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Monthly Attendance Summary (% in Columns)</h2>
+          <p class="text-xs text-slate-500 mb-4">Select months to view aggregated attendance and percentage columns per student.</p>
+          <div id="summaryMonthChips" class="flex flex-wrap gap-2 mb-4"></div>
+          <div id="summaryTableContainer" class="overflow-x-auto"></div>
+        </div>
+
+        <!-- NEW DETAILED MONTHLY STATISTICAL REPORT -->
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <div class="flex justify-between items-center mb-4 flex-wrap gap-3">
+            <h2 class="text-base font-bold text-slate-900 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Detailed Monthly Statistical Report</h2>
+            <div>
+              <label class="text-xs font-bold text-slate-600 mr-2">Select Month:</label>
+              <input type="month" id="detailedStatMonthInput" onchange="renderDetailedMonthlyStats()" class="border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-semibold">
+            </div>
+          </div>
+          <p class="text-xs text-slate-500 mb-4">Includes daily cumulative calculations, new admissions, attendance averages calculated up to the current date/days in month.</p>
+          <div id="detailedStatTableContainer" class="overflow-x-auto"></div>
+        </div>
+      </section>
+
+      <section class="tab-panel hidden" id="tab-daterange">
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Date Range Report</h2>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mb-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">From Date</label>
+              <input type="date" id="drFrom" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">To Date</label>
+              <input type="date" id="drTo" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div id="drClassSelectWrap">
+              <label class="block text-xs font-bold text-slate-600 mb-1">Class</label>
+              <select id="drClass" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                <option value="">All Classes</option>
+              </select>
+            </div>
+            <div>
+              <button onclick="generateDateRangeReport()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 rounded-xl transition">🔍 Generate Report</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="drClassCard" class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm hidden">
+          <h2 class="text-base font-bold text-slate-900 mb-4 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Class-wise Date Range Summary</h2>
+          <div id="drClassContainer" class="overflow-x-auto"></div>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-4 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Student-wise Detail</h2>
+          <div id="drStudentContainer" class="overflow-x-auto"></div>
+        </div>
+      </section>
+
+      <!-- Low Attendance -->
+      <section class="tab-panel hidden" id="tab-low">
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Low Attendance Defaulters</h2>
+          <p class="text-xs text-slate-500 mb-4">Admins can view defaulters across all classes simultaneously or filter by individual class.</p>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mb-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Threshold (%)</label>
+              <input type="number" id="lowThreshold" value="75" min="0" max="100" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Class Scope</label>
+              <select id="lowClassFilter" class="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                <option value="">All School Classes</option>
+              </select>
+            </div>
+            <div>
+              <button onclick="renderLowAttendance()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 rounded-xl transition">🔍 Filter Defaulters</button>
+            </div>
+          </div>
+          <div id="lowAttendanceContainer" class="overflow-x-auto"></div>
+        </div>
+      </section>
+
+      <!-- Consolidated Sheet -->
+      <section class="tab-panel hidden" id="tab-consolidated">
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Consolidated School Sheet</h2>
+          <p class="text-xs text-slate-500 mb-4">Complete breakdown of registered students, boys, girls, left students, and active students per class.</p>
+          <div id="consTableContainer" class="overflow-x-auto mb-6"></div>
+          <div id="consOverallContainer"></div>
+        </div>
+      </section>
+
+      <section class="tab-panel hidden" id="tab-downloads">
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Download Reports (PDF, Excel & Preview)</h2>
+          <p class="text-xs text-slate-500 mb-6">All downloaded reports automatically embed school name, address, and dual logos.</p>
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+              <h3 class="font-bold text-xs text-slate-900 mb-1">1. Monthly Attendance Report</h3>
+              <p class="text-[11px] text-slate-500 mb-3">Download or preview monthly attendance sheet for active class.</p>
+              <div class="flex gap-2 flex-wrap">
+                <button onclick="previewReport('monthly')" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-lg">👁 Preview</button>
+                <button onclick="exportReport('monthly', 'pdf')" class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-2 rounded-lg">📥 PDF</button>
+                <button onclick="exportReport('monthly', 'excel')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg">📥 Excel</button>
+              </div>
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+              <h3 class="font-bold text-xs text-slate-900 mb-1">2. Detailed Monthly Statistical Report</h3>
+              <p class="text-[11px] text-slate-500 mb-3">Boys/Girls present, absent, admitted, and average attendance.</p>
+              <div class="flex gap-2 flex-wrap">
+                <button onclick="previewReport('detailed_stats')" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-lg">👁 Preview</button>
+                <button onclick="exportReport('detailed_stats', 'pdf')" class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-2 rounded-lg">📥 PDF</button>
+                <button onclick="exportReport('detailed_stats', 'excel')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg">📥 Excel</button>
+              </div>
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+              <h3 class="font-bold text-xs text-slate-900 mb-1">3. Class-wise Student List</h3>
+              <p class="text-[11px] text-slate-500 mb-3">Student directory for current class.</p>
+              <div class="flex gap-2 flex-wrap">
+                <button onclick="previewReport('class_students')" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-lg">👁 Preview</button>
+                <button onclick="exportReport('class_students', 'pdf')" class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-2 rounded-lg">📥 PDF</button>
+                <button onclick="exportReport('class_students', 'excel')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg">📥 Excel</button>
+              </div>
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+              <h3 class="font-bold text-xs text-slate-900 mb-1">4. Whole School Student Directory</h3>
+              <p class="text-[11px] text-slate-500 mb-3">Complete student roster for all classes.</p>
+              <div class="flex gap-2 flex-wrap">
+                <button onclick="previewReport('school_students')" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-lg">👁 Preview</button>
+                <button onclick="exportReport('school_students', 'pdf')" class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-2 rounded-lg">📥 PDF</button>
+                <button onclick="exportReport('school_students', 'excel')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg">📥 Excel</button>
+              </div>
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+              <h3 class="font-bold text-xs text-slate-900 mb-1">5. Date Range Report</h3>
+              <p class="text-[11px] text-slate-500 mb-3">Attendance evaluation between custom dates.</p>
+              <div class="flex gap-2 flex-wrap">
+                <button onclick="previewReport('daterange')" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-lg">👁 Preview</button>
+                <button onclick="exportReport('daterange', 'pdf')" class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-2 rounded-lg">📥 PDF</button>
+                <button onclick="exportReport('daterange', 'excel')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg">📥 Excel</button>
+              </div>
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+              <h3 class="font-bold text-xs text-slate-900 mb-1">6. Low Attendance Defaulters</h3>
+              <p class="text-[11px] text-slate-500 mb-3">Students below attendance threshold.</p>
+              <div class="flex gap-2 flex-wrap">
+                <button onclick="previewReport('low')" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-lg">👁 Preview</button>
+                <button onclick="exportReport('low', 'pdf')" class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-2 rounded-lg">📥 PDF</button>
+                <button onclick="exportReport('low', 'excel')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg">📥 Excel</button>
+              </div>
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl md:col-span-2">
+              <h3 class="font-bold text-xs text-slate-900 mb-1">7. Consolidated Report</h3>
+              <p class="text-[11px] text-slate-500 mb-3">School-wide consolidated statistics.</p>
+              <div class="flex gap-2 flex-wrap">
+                <button onclick="previewReport('consolidated')" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-lg">👁 Preview</button>
+                <button onclick="exportReport('consolidated', 'pdf')" class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-2 rounded-lg">📥 PDF</button>
+                <button onclick="exportReport('consolidated', 'excel')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg">📥 Excel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Guide Tab -->
+      <section class="tab-panel hidden" id="tab-help">
+        <div class="bg-white border border-slate-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900 mb-2 flex items-center gap-2"><span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Complete User Guide & FAQs</h2>
+          <p class="text-xs text-slate-500 mb-6">Detailed operating instructions for administrators, class teachers, and proxy teachers.</p>
+
+          <div class="space-y-6 text-xs text-slate-700">
+            <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+              <h3 class="font-extrabold text-slate-900 text-sm mb-2">1. Operating User Roles</h3>
+              <ul class="list-disc pl-5 space-y-1">
+                <li><b>👑 Admin:</b> Log in using Admin credentials. Admins can configure school details, manage classes, update class teacher names, reorder class sequences, configure holidays, and view school-wide reports.</li>
+                <li><b>👨‍🏫 Class Teacher:</b> Select your specific class from the dropdown and log in with your class password. You can manage student records (with G.R. No. and Roll Nos), mark monthly attendance, assign proxy teachers, and download class reports.</li>
+                <li><b>👤 Proxy Teacher:</b> Log in using credentials set up by your class teacher. Proxy teachers can <b>only</b> mark or edit attendance for the current calendar date.</li>
+              </ul>
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+              <h3 class="font-extrabold text-slate-900 text-sm mb-2">2. Managing Student Data & Excel Imports</h3>
+              <p class="mb-2">When adding a student, enter their unique <b>G.R. No. (General Register Number)</b> and mandatory fields. You can also import students in bulk using an Excel template downloaded from the Student Data tab.</p>
+              <p>If a student leaves the school, click <b>Left</b> and provide the leaving date. Roll numbers adjust automatically.</p>
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+              <h3 class="font-extrabold text-slate-900 text-sm mb-2">3. Frequently Asked Questions (FAQs)</h3>
+              <div class="space-y-3 mt-2">
+                <div>
+                  <p class="font-bold text-slate-900">Q: Can proxy teachers edit past attendance?</p>
+                  <p>A: No. Proxy teachers are restricted strictly to marking attendance for the current calendar date.</p>
+                </div>
+                <div>
+                  <p class="font-bold text-slate-900">Q: How do dual school logos appear on reports?</p>
+                  <p>A: Upload your left logo and right logo in the "School & Sessions" tab. They will automatically be embedded on all printed or downloaded PDF/Excel reports.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'svkmSchoolAttendanceMaster';
+  const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+    apiKey: "AIzaSyDummyKeyForPreviewModeOnly",
+    authDomain: "svkm-attendance.firebaseapp.com",
+    projectId: "svkm-attendance",
+    storageBucket: "svkm-attendance.appspot.com",
+    messagingSenderId: "123456789",
+    appId: "1:123456789:web:abcdef"
+  };
+
+  const firebaseApp = initializeApp(firebaseConfig);
+  const auth = getAuth(firebaseApp);
+  const db = getFirestore(firebaseApp);
+  
+  // FIXED: Firestore document references require an even number of segments (collection/document).
+  const dbDocRef = doc(db, 'artifacts', appId);
+
+  const defaultDB = {
+    fileId: "SVKM-MASTER-0005",
+    masterPassword: "Svkm@1812",
+    school: "SVKM SCHOOL, DHULE",
+    address: "Dhule, Maharashtra",
+    logoLeft: "",
+    logoRight: "",
+    logoLogin: "",
+    sessions: [
+      { id: "sess-2026-27", name: "2026-27", start: "2026-04-01", end: "2027-03-31" }
+    ],
+    activeSessionId: "sess-2026-27",
+    holidays: [
+      { id: "h1", date: "2026-06-26", reason: "Muharram", type: "Festival", classTarget: "ALL", sessionId: "sess-2026-27" }
+    ],
+    houses: [
+      { id: "ho1", name: "Emerald", color: "#4fe64c" },
+      { id: "ho2", name: "Ruby", color: "#f92f0b" }
+    ],
+    settings: { sundayHoliday: true },
+    admins: [], 
+    classes: [
+      {
+        id: "cls-ia",
+        name: "I-A",
+        teacher: "Teacher Name",
+        password: "123",
+        proxyUser: "",
+        proxyPwd: "",
+        students: [
+          { id: "s1", gr: "1001", name: "DIYA SONI", gender: "Female", dob: "2018-10-20", father: "DINESH KUMAR SONI", mother: "HINA SONI", house: "Emerald", c1: "9827395641", c2: "7999361761", admitDate: "2026-04-01", leftDate: "" }
+        ],
+        attendance: {}
+      }
+    ],
+    sessionDataStore: {},
+    lastModified: Date.now()
+  };
+
+  let DB = JSON.parse(JSON.stringify(defaultDB));
+  let currentUser = null;
+  let currentRole = null; // 'master', 'sub_admin', 'class', 'proxy'
+  let activeAdminName = 'Admin'; 
+  let activeClassId = null;
+  let currentTab = 'school';
+  let isLocalEdit = false;
+
+  window.$ = (s) => document.querySelector(s);
+  window.$$ = (s) => Array.from(document.querySelectorAll(s));
+  window.pad = (n) => String(n).padStart(2, '0');
+  window.uid = (p) => (p || 'id') + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  window.esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  window.dk = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`;
+  window.daysInMonth = (y, m) => new Date(y, m, 0).getDate();
+  window.monthLabel = (mo) => { const p = mo.split('-').map(Number); return new Date(p[0], p[1]-1, 1).toLocaleDateString('en-GB', { month:'short', year:'numeric' }); };
+  window.fmtDate = (d) => new Date(d+'T00:00:00').toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+
+  window.toast = function(msg, type = 'ok') {
+    const t = document.createElement('div');
+    t.className = `fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl font-bold text-xs shadow-2xl text-white transition duration-300 ${type === 'err' ? 'bg-rose-600' : type === 'warn' ? 'bg-amber-600' : 'bg-emerald-700'}`;
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3500);
+  }
+
+  async function initFirebaseAndApp() {
+    try {
+      await signInAnonymously(auth);
+      currentUser = auth.currentUser;
+    } catch (err) {
+      console.warn("Auth warning:", err);
+    }
+
+    try {
+      onSnapshot(dbDocRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const remoteData = docSnap.data();
+          if (remoteData && remoteData.classes && remoteData.classes.length > 0) {
+            if (!isLocalEdit) {
+              DB = remoteData;
+              if (!DB.sessions) DB.sessions = [{ id: 'sess-default', name: '2026-27', start: '2026-04-01', end: '2027-03-31' }];
+              if (!DB.activeSessionId) DB.activeSessionId = DB.sessions[0].id;
+              if (!DB.sessionDataStore) DB.sessionDataStore = {};
+              refreshActiveSessionData();
+              renderActiveTab();
+            }
+            isLocalEdit = false;
+          }
+        } else {
+          setDoc(dbDocRef, defaultDB).catch(() => {});
+          DB = JSON.parse(JSON.stringify(defaultDB));
+          refreshActiveSessionData();
+          renderActiveTab();
+        }
+        $('#authLoadingState').classList.add('hidden');
+        $('#authLoginForm').classList.remove('hidden');
+        updateSchoolBrandingUI();
+      }, (error) => {
+        console.warn("Snapshot fallback:", error);
+        refreshActiveSessionData();
+        renderActiveTab();
+        $('#authLoadingState').classList.add('hidden');
+        $('#authLoginForm').classList.remove('hidden');
+        updateSchoolBrandingUI();
+      });
+    } catch (err) {
+      $('#authLoadingState').classList.add('hidden');
+      $('#authLoginForm').classList.remove('hidden');
+      updateSchoolBrandingUI();
+    }
+  }
+
+  window.persistCloud = async function() {
+    DB.lastModified = Date.now();
+    isLocalEdit = true;
+    try {
+      await setDoc(dbDocRef, DB);
+      const st = $('#saveState');
+      if (st) { st.textContent = "✓ Cloud Synced"; st.className = "text-xs font-bold px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200"; }
+    } catch(err) {
+      const st = $('#saveState');
+      if (st) { st.textContent = "✓ Saved Locally"; st.className = "text-xs font-bold px-3 py-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-200"; }
+    }
+  }
+
+  window.downloadJsonBackup = function() {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(DB, null, 2));
+    const dlAnchorElem = document.createElement('a');
+    dlAnchorElem.setAttribute("href", dataStr);
+    dlAnchorElem.setAttribute("download", `svkm_attendance_backup_${new Date().toISOString().slice(0,10)}.json`);
+    document.body.appendChild(dlAnchorElem);
+    dlAnchorElem.click();
+    dlAnchorElem.remove();
+    toast("Backup JSON file downloaded successfully.", "ok");
+  }
+
+  window.restoreJsonBackup = function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async function(ev) {
+      try {
+        const parsed = JSON.parse(ev.target.result);
+        if (parsed && parsed.classes) {
+          DB = parsed;
+          if (!DB.sessions) DB.sessions = [{ id: 'sess-default', name: '2026-27', start: '2026-04-01', end: '2027-03-31' }];
+          if (!DB.activeSessionId) DB.activeSessionId = DB.sessions[0].id;
+          if (!DB.sessionDataStore) DB.sessionDataStore = {};
+          await persistCloud();
+          refreshActiveSessionData();
+          renderSidebar();
+          switchTab('school');
+          toast("Database successfully restored from backup file!", "ok");
+        } else {
+          toast("Invalid backup file format.", "err");
+        }
+      } catch (err) {
+        toast("Failed to parse backup JSON file.", "err");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }
+
+  window.updateSchoolBrandingUI = function() {
+    $('#hdrSchool').textContent = DB.school || 'SVKM SCHOOL';
+    $('#hdrAddress').textContent = DB.address || '';
+    $('#authSchoolTitle').textContent = DB.school || 'SVKM Attendance';
+    
+    const leftCont = $('#hdrLeftLogoContainer');
+    if (DB.logoLeft) {
+      leftCont.innerHTML = `<img src="${esc(DB.logoLeft)}" class="w-full h-full object-cover" onerror="this.outerHTML='🎓'">`;
+    } else {
+      leftCont.innerHTML = `<span class="text-2xl">🎓</span>`;
+    }
+    const rightCont = $('#hdrRightLogoContainer');
+    if (DB.logoRight) {
+      rightCont.innerHTML = `<img src="${esc(DB.logoRight)}" class="w-full h-full object-cover" onerror="this.outerHTML='🏫'">`;
+    } else {
+      rightCont.innerHTML = `<span class="text-2xl">🏫</span>`;
+    }
+    const loginCont = $('#authLogoContainer');
+    if (DB.logoLogin) {
+      loginCont.innerHTML = `<img src="${esc(DB.logoLogin)}" class="w-16 h-16 object-cover rounded-full border shadow" onerror="this.outerHTML='<span class=\\'text-6xl\\'>🎓</span>'">`;
+    } else {
+      loginCont.innerHTML = `<span class="text-6xl">🎓</span>`;
+    }
+  }
+
+  let loginRoleTab = 'master';
+  window.switchLoginTab = function(role) {
+    loginRoleTab = role;
+    $('#tabMasterBtn').className = role === 'master' ? 'flex-1 py-2 px-2 rounded-lg text-xs font-bold bg-white text-indigo-600 shadow-sm transition whitespace-nowrap' : 'flex-1 py-2 px-2 rounded-lg text-xs font-bold text-slate-500 hover:text-slate-900 transition whitespace-nowrap';
+    $('#tabClassBtn').className = role === 'class' ? 'flex-1 py-2 px-2 rounded-lg text-xs font-bold bg-white text-indigo-600 shadow-sm transition whitespace-nowrap' : 'flex-1 py-2 px-2 rounded-lg text-xs font-bold text-slate-500 hover:text-slate-900 transition whitespace-nowrap';
+    $('#tabProxyBtn').className = role === 'proxy' ? 'flex-1 py-2 px-2 rounded-lg text-xs font-bold bg-white text-indigo-600 shadow-sm transition whitespace-nowrap' : 'flex-1 py-2 px-2 rounded-lg text-xs font-bold text-slate-500 hover:text-slate-900 transition whitespace-nowrap';
+
+    $('#classSelectWrap').classList.remove('hidden');
+    const sel = $('#loginClassSelect');
+    const lbl = $('#loginClassLabel');
+
+    if (role === 'master') {
+      $('#classSelectWrap').classList.add('hidden');
+    } else if (role === 'class') {
+      lbl.textContent = "Select Class";
+      sel.innerHTML = DB.classes.map(c => `<option value="${esc(c.id)}">${esc(c.name)} ${c.teacher ? '('+esc(c.teacher)+')' : ''}</option>`).join('');
+    } else if (role === 'proxy') {
+      lbl.textContent = "Select Class for Proxy";
+      sel.innerHTML = DB.classes.filter(c => c.proxyUser).map(c => `<option value="${esc(c.id)}">${esc(c.name)} (Proxy)</option>`).join('');
+      if (!sel.options.length) {
+        sel.innerHTML = `<option value="">No proxy teachers configured</option>`;
+      }
+    }
+  }
+
+  window.handleLogin = function(e) {
+    e.preventDefault();
+    const pwd = $('#loginPwd').value;
+    const errEl = $('#loginErr');
+
+    if (loginRoleTab === 'master') {
+      if (pwd === DB.masterPassword) {
+        currentRole = 'master';
+        activeAdminName = 'Admin';
+        activeClassId = DB.classes[0]?.id || null;
+      } else {
+        const sub = (DB.admins || []).find(a => a.pwd === pwd);
+        if (sub) {
+          currentRole = 'sub_admin';
+          activeAdminName = sub.user; 
+          activeClassId = DB.classes[0]?.id || null;
+        } else {
+          errEl.textContent = "Incorrect Admin Password.";
+          errEl.classList.remove('hidden');
+          return;
+        }
+      }
+    } else {
+      const clsId = $('#loginClassSelect').value;
+      const cls = DB.classes.find(c => c.id === clsId);
+      if (!cls) {
+        errEl.textContent = "Please select a valid class.";
+        errEl.classList.add('hidden');
+        return;
+      }
+      if (loginRoleTab === 'class') {
+        if (pwd === (cls.password || '123')) {
+          currentRole = 'class';
+          activeAdminName = cls.teacher ? `${cls.teacher}` : `Class ${cls.name} Teacher`;
+          activeClassId = cls.id;
+        } else {
+          errEl.textContent = "Incorrect Class Teacher Password.";
+          errEl.classList.remove('hidden');
+          return;
+        }
+      } else if (loginRoleTab === 'proxy') {
+        if (cls.proxyUser && pwd === cls.proxyPwd) {
+          currentRole = 'proxy';
+          activeAdminName = `Proxy (${cls.name})`;
+          activeClassId = cls.id;
+        } else {
+          errEl.textContent = "Incorrect Proxy Teacher Password or Proxy not configured.";
+          errEl.classList.remove('hidden');
+          return;
+        }
+      }
+    }
+    errEl.classList.add('hidden');
+    $('#authOverlay').classList.add('hidden');
+    startApplication();
+  }
+
+  window.showForgotPasswordModal = function() {
+    $('#forgotPasswordModal').classList.remove('hidden');
+    $('#forgotAnswerInput').value = '';
+    $('#forgotResultBox').classList.add('hidden');
+  }
+
+  window.verifyForgotPassword = function() {
+    const ans = $('#forgotAnswerInput').value.trim();
+    const box = $('#forgotResultBox');
+    box.classList.remove('hidden');
+    if (ans.toUpperCase() === 'DKS') {
+      box.className = "mb-4 p-3 bg-emerald-50 text-emerald-800 text-xs font-bold rounded-xl";
+      box.textContent = `Correct! Master Password is: ${DB.masterPassword}`;
+    } else {
+      box.className = "mb-4 p-3 bg-rose-50 text-rose-800 text-xs font-bold rounded-xl";
+      box.textContent = "Incorrect answer! Hint: Who made this app?";
+    }
+  }
+
+  window.logoutApp = function() {
+    currentRole = null;
+    activeClassId = null;
+    $('#authOverlay').classList.remove('hidden');
+    $('#loginPwd').value = '';
+    switchLoginTab('master');
+  }
+
+  window.startApplication = function() {
+    refreshActiveSessionData();
+    renderSidebar();
+    switchTab(currentRole === 'master' || currentRole === 'sub_admin' ? 'school' : 'myclass');
+  }
+
+  window.refreshActiveSessionData = function() {
+    updateSchoolBrandingUI();
+    const rb = $('#roleBadge');
+    if (rb) {
+      rb.textContent = activeAdminName;
+      if (currentRole === 'master') { rb.className = 'text-xs font-bold px-3 py-1 rounded-full bg-amber-400 text-amber-950'; }
+      else if (currentRole === 'sub_admin') { rb.className = 'text-xs font-bold px-3 py-1 rounded-full bg-purple-400 text-purple-950'; }
+      else if (currentRole === 'proxy') { rb.className = 'text-xs font-bold px-3 py-1 rounded-full bg-blue-400 text-blue-950'; }
+      else { rb.className = 'text-xs font-bold px-3 py-1 rounded-full bg-white/20 text-white'; }
+    }
+    
+    const sessSel = $('#globalSessionSelect');
+    if (sessSel) {
+      if (!DB.sessions) DB.sessions = [{ id: 'sess-default', name: '2026-27', start: '2026-04-01', end: '2027-03-31' }];
+      if (!DB.activeSessionId) DB.activeSessionId = DB.sessions[0].id;
+      sessSel.innerHTML = DB.sessions.map(s => `<option value="${s.id}">${esc(s.name)} (${s.start} to ${s.end})</option>`).join('');
+      sessSel.value = DB.activeSessionId;
+    }
+
+    const classWrap = $('#hdrClassWrap');
+    if (currentRole === 'master' || currentRole === 'sub_admin') {
+      classWrap.classList.remove('hidden');
+      classWrap.classList.add('flex');
+      const sel = $('#hdrClassSelect');
+      sel.innerHTML = DB.classes.map(c => `<option value="${esc(c.id)}">${esc(c.name)} ${c.teacher ? '('+esc(c.teacher)+')' : ''}</option>`).join('');
+      if (activeClassId) sel.value = activeClassId;
+    } else {
+      classWrap.classList.add('hidden');
+    }
+    updateFilterDropdowns();
+  }
+
+  window.changeGlobalSession = function(sessId) {
+    if (!DB.sessionDataStore) DB.sessionDataStore = {};
+    if (DB.activeSessionId) {
+      DB.sessionDataStore[DB.activeSessionId] = JSON.parse(JSON.stringify(DB.classes));
+    }
+    
+    DB.activeSessionId = sessId;
+    
+    if (DB.sessionDataStore[sessId]) {
+      DB.classes = JSON.parse(JSON.stringify(DB.sessionDataStore[sessId]));
+    } else {
+      DB.sessionDataStore[sessId] = JSON.parse(JSON.stringify(DB.classes));
+    }
+
+    persistCloud();
+    refreshActiveSessionData();
+    renderActiveTab();
+    toast(`Switched to session: ${DB.sessions.find(s => s.id === sessId)?.name || ''}`, 'ok');
+  }
+
+  window.changeActiveClass = function(clsId) {
+    activeClassId = clsId;
+    refreshActiveSessionData();
+    renderActiveTab();
+    toast(`Active class switched to ${DB.classes.find(c => c.id === clsId)?.name || ''}`, 'ok');
+  }
+
+  window.getActiveClass = function() {
+    return DB.classes.find(c => c.id === activeClassId) || null;
+  }
+
+  window.isPastSession = function() {
+    const currentSess = (DB.sessions || []).find(s => s.id === DB.activeSessionId);
+    if (!currentSess || !DB.sessions.length) return false;
+    const latestSess = DB.sessions[DB.sessions.length - 1];
+    return currentSess.id !== latestSess.id;
+  }
+
+  window.switchTab = function(tabId) {
+    currentTab = tabId;
+    $$('.tab-panel').forEach(p => p.classList.add('hidden'));
+    const target = $(`#tab-${tabId}`);
+    if (target) target.classList.remove('hidden');
+    $$('#sidebar button').forEach(b => {
+      b.classList.toggle('bg-indigo-50', b.dataset.tab === tabId);
+      b.classList.toggle('text-indigo-700', b.dataset.tab === tabId);
+      b.classList.toggle('font-bold', b.dataset.tab === tabId);
+    });
+    renderActiveTab();
+  }
+
+  window.renderActiveTab = function() {
+    if (currentTab === 'school') renderSchoolSettings();
+    if (currentTab === 'classes') renderClassesManagement();
+    if (currentTab === 'myclass') renderMyClassStats();
+    if (currentTab === 'entry') renderStudentsList();
+    if (currentTab === 'register') renderAttendanceRegister();
+    if (currentTab === 'holiday') renderHolidaysList();
+    if (currentTab === 'summary') { renderMonthlySummary(); renderDetailedMonthlyStats(); }
+    if (currentTab === 'daterange') renderDateRangeReport();
+    if (currentTab === 'low') renderLowAttendance();
+    if (currentTab === 'consolidated') renderConsolidatedReport();
+  }
+
+  window.renderSidebar = function() {
+    const nav = $('#sidebar');
+    const isAdmin = currentRole === 'master' || currentRole === 'sub_admin';
+    const tabs = isAdmin ? [
+      { id: 'school', icon: '🏫', label: 'School & Sessions' },
+      { id: 'classes', icon: '🎓', label: 'Classes & Teachers' },
+      { id: 'entry', icon: '👥', label: 'Student Data' },
+      { id: 'register', icon: '📋', label: 'Attendance Register' },
+      { id: 'summary', icon: '📊', label: 'Monthly Summary' },
+      { id: 'daterange', icon: '📅', label: 'Date Range Report' },
+      { id: 'low', icon: '⚠', label: 'Low Attendance' },
+      { id: 'consolidated', icon: '📈', label: 'Consolidated Sheet' },
+      { id: 'holiday', icon: '🎉', label: 'Holidays' },
+      { id: 'downloads', icon: '📥', label: 'Download Reports' },
+      { id: 'help', icon: '📖', label: 'Guide' }
+    ] : [
+      { id: 'myclass', icon: '👤', label: 'My Class & Proxy' },
+      { id: 'entry', icon: '👥', label: 'Student Data' },
+      { id: 'register', icon: '📋', label: 'Attendance Register' },
+      { id: 'summary', icon: '📊', label: 'Monthly Summary' },
+      { id: 'daterange', icon: '📅', label: 'Date Range Report' },
+      { id: 'low', icon: '⚠', label: 'Low Attendance' },
+      { id: 'holiday', icon: '🎉', label: 'Holidays' },
+      { id: 'downloads', icon: '📥', label: 'Download Reports' },
+      { id: 'help', icon: '📖', label: 'Guide' }
+    ];
+
+    nav.innerHTML = tabs.map(t => `
+      <button onclick="switchTab('${t.id}')" data-tab="${t.id}" class="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition shrink-0 md:shrink">
+        <span class="text-base">${t.icon}</span><span>${t.label}</span>
+      </button>
+    `).join('');
+  }
+
+  window.renderSchoolSettings = function() {
+    $('#schoolNameInput').value = DB.school || '';
+    $('#schoolAddressInput').value = DB.address || '';
+    renderSessionsListTable();
+    renderHouseListTable();
+    renderAdminListTable();
+  }
+
+  window.handleLogoUpload = function(e, logoKey) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      DB[logoKey] = ev.target.result;
+      persistCloud();
+      updateSchoolBrandingUI();
+      toast("Logo uploaded successfully.", "ok");
+    };
+    reader.readAsDataURL(file);
+  }
+
+  window.updateSchoolMeta = function() {
+    DB.school = $('#schoolNameInput').value;
+    DB.address = $('#schoolAddressInput').value;
+    persistCloud();
+    updateSchoolBrandingUI();
+  }
+
+  window.addNewSession = function(e) {
+    e.preventDefault();
+    const name = $('#newSessName').value.trim();
+    const start = $('#newSessStart').value;
+    const end = $('#newSessEnd').value;
+    if (!DB.sessions) DB.sessions = [];
+    const sessId = uid('sess');
+    DB.sessions.push({ id: sessId, name, start, end });
+    DB.activeSessionId = sessId;
+    DB.classes = DB.classes.map(c => ({ ...c, students: [], attendance: {} }));
+    if (!DB.sessionDataStore) DB.sessionDataStore = {};
+    DB.sessionDataStore[sessId] = JSON.parse(JSON.stringify(DB.classes));
+
+    persistCloud();
+    e.target.reset();
+    refreshActiveSessionData();
+    renderSessionsListTable();
+    toast(`New session "${name}" added successfully.`, 'ok');
+  }
+
+  window.renderSessionsListTable = function() {
+    const container = $('#sessionsListTable');
+    if (!container) return;
+    const sessions = DB.sessions || [];
+    container.innerHTML = `
+      <table class="w-full text-left text-xs">
+        <thead class="bg-slate-50 text-slate-500 uppercase">
+          <tr><th class="p-3">#</th><th class="p-3">Session Name</th><th class="p-3">Start Date</th><th class="p-3">End Date</th><th class="p-3 text-right">Status</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${sessions.map((s, i) => `
+            <tr>
+              <td class="p-3 font-medium">${i+1}</td>
+              <td class="p-3 font-bold text-indigo-600">${esc(s.name)}</td>
+              <td class="p-3">${esc(s.start)}</td>
+              <td class="p-3">${esc(s.end)}</td>
+              <td class="p-3 text-right">${s.id === DB.activeSessionId ? '<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold">Active Session</span>' : '<span class="text-slate-400">Archived</span>'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  window.addNewAdmin = function(e) {
+    e.preventDefault();
+    if (currentRole !== 'master') { toast("Only main admin can add new admins.", "err"); return; }
+    const user = $('#newAdminUser').value.trim();
+    const pwd = $('#newAdminPwd').value.trim();
+    if (!DB.admins) DB.admins = [];
+    if (DB.admins.some(a => a.user === user)) { toast("Admin ID already exists.", "err"); return; }
+    DB.admins.push({ id: uid('adm'), user, pwd });
+    persistCloud();
+    e.target.reset();
+    renderAdminListTable();
+    toast("Admin added successfully.", "ok");
+  }
+
+  window.deleteAdmin = function(id) {
+    if (currentRole !== 'master') { toast("Only main admin can delete admins.", "err"); return; }
+    DB.admins = DB.admins.filter(a => a.id !== id);
+    persistCloud();
+    renderAdminListTable();
+    toast("Admin removed.", "warn");
+  }
+
+  window.renderAdminListTable = function() {
+    const container = $('#adminListTable');
+    if (!container) return;
+    const admins = DB.admins || [];
+    if (!admins.length) { container.innerHTML = `<p class="text-xs text-slate-400 italic">No additional admins created.</p>`; return; }
+    container.innerHTML = `
+      <table class="w-full text-left text-xs">
+        <thead class="bg-slate-50 text-slate-500 uppercase">
+          <tr><th class="p-3">#</th><th class="p-3">Admin Name / Role</th><th class="p-3 text-right">Action</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${admins.map((a, i) => `
+            <tr>
+              <td class="p-3 font-medium">${i+1}</td>
+              <td class="p-3 font-bold text-indigo-600">${esc(a.user)}</td>
+              <td class="p-3 text-right"><button onclick="deleteAdmin('${a.id}')" class="text-rose-600 font-bold hover:underline">Remove</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  window.addHouse = function(e) {
+    e.preventDefault();
+    const name = $('#houseNameInput').value.trim();
+    const color = $('#houseColorInput').value;
+    if (!DB.houses) DB.houses = [];
+    if (DB.houses.some(h => h.name.toLowerCase() === name.toLowerCase())) { toast("House already exists.", "err"); return; }
+    DB.houses.push({ id: uid('ho'), name, color });
+    persistCloud();
+    e.target.reset();
+    renderSchoolSettings();
+    toast("House added successfully.", "ok");
+  }
+
+  window.deleteHouse = function(id) {
+    DB.houses = DB.houses.filter(h => h.id !== id);
+    persistCloud();
+    renderSchoolSettings();
+    toast("House deleted.", "warn");
+  }
+
+  window.renderHouseListTable = function() {
+    const container = $('#houseListTable');
+    if (!container) return;
+    const houses = DB.houses || [];
+    if (!houses.length) { container.innerHTML = `<p class="text-xs text-slate-400 italic">No houses created yet.</p>`; return; }
+    container.innerHTML = `
+      <table class="w-full text-left text-xs">
+        <thead class="bg-slate-50 text-slate-500 uppercase">
+          <tr><th class="p-3">#</th><th class="p-3">House Name</th><th class="p-3">Colour</th><th class="p-3 text-right">Action</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${houses.map((h, i) => `
+            <tr>
+              <td class="p-3 font-medium">${i+1}</td>
+              <td class="p-3 font-bold flex items-center gap-2"><span class="w-3 h-3 rounded-full inline-block" style="background:${h.color}"></span>${esc(h.name)}</td>
+              <td class="p-3 font-mono text-slate-500">${h.color}</td>
+              <td class="p-3 text-right"><button onclick="deleteHouse('${h.id}')" class="text-rose-600 font-bold hover:underline">Delete</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  window.renderClassesManagement = function() {
+    const container = $('#classesListTable');
+    if (!container) return;
+    const classes = DB.classes || [];
+    if (!classes.length) { container.innerHTML = `<p class="text-xs text-slate-400 italic">No classes found.</p>`; return; }
+    container.innerHTML = `
+      <table class="w-full text-left text-xs">
+        <thead class="bg-slate-50 text-slate-500 uppercase">
+          <tr><th class="p-3">#</th><th class="p-3">Class Name</th><th class="p-3">Class Teacher Name</th><th class="p-3">Students</th><th class="p-3 text-center">Sequence</th><th class="p-3 text-right">Action</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${classes.map((c, i) => `
+            <tr>
+              <td class="p-3 font-medium">${i+1}</td>
+              <td class="p-3 font-bold text-indigo-600">
+                <input type="text" value="${esc(c.name)}" onchange="updateClassName('${c.id}', this.value)" class="border border-slate-300 rounded-lg px-2 py-1 text-xs w-full max-w-[120px]">
+              </td>
+              <td class="p-3 font-semibold text-slate-700">
+                <input type="text" value="${esc(c.teacher || '')}" onchange="updateClassTeacherName('${c.id}', this.value)" placeholder="Enter teacher name" class="border border-slate-300 rounded-lg px-2 py-1 text-xs w-full max-w-[180px]">
+              </td>
+              <td class="p-3">${c.students?.length || 0}</td>
+              <td class="p-3 text-center space-x-1">
+                <button onclick="moveClass(${i}, -1)" class="bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded font-bold" ${i === 0 ? 'disabled opacity-50' : ''}>⬆</button>
+                <button onclick="moveClass(${i}, 1)" class="bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded font-bold" ${i === classes.length-1 ? 'disabled opacity-50' : ''}>⬇</button>
+              </td>
+              <td class="p-3 text-right space-x-2">
+                <button onclick="changeActiveClass('${c.id}'); switchTab('entry');" class="bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-lg font-bold">Manage</button>
+                <button onclick="deleteClass('${c.id}')" class="text-rose-600 font-bold hover:underline">Delete</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  window.updateClassName = function(clsId, className) {
+    const cls = DB.classes.find(c => c.id === clsId);
+    if (cls) {
+      cls.name = className.trim();
+      persistCloud();
+      refreshActiveSessionData();
+      toast(`Class name updated`, 'ok');
+    }
+  }
+
+  window.updateClassTeacherName = function(clsId, teacherName) {
+    const cls = DB.classes.find(c => c.id === clsId);
+    if (cls) {
+      cls.teacher = teacherName.trim();
+      persistCloud();
+      refreshActiveSessionData();
+      toast(`Class teacher updated for ${cls.name}`, 'ok');
+    }
+  }
+
+  window.moveClass = function(index, direction) {
+    const target = index + direction;
+    if (target < 0 || target >= DB.classes.length) return;
+    const temp = DB.classes[index];
+    DB.classes[index] = DB.classes[target];
+    DB.classes[target] = temp;
+    persistCloud();
+    renderClassesManagement();
+    refreshActiveSessionData();
+    toast("Class sequence updated.", "ok");
+  }
+
+  window.addNewClass = function(e) {
+    e.preventDefault();
+    const name = $('#newClassName').value.trim();
+    const teacher = $('#newClassTeacher').value.trim();
+    const password = $('#newClassPwd').value.trim() || '123';
+    if (DB.classes.some(c => c.name.toLowerCase() === name.toLowerCase())) { toast("Class already exists.", "err"); return; }
+    DB.classes.push({ id: uid('cls'), name, teacher, password, proxyUser: '', proxyPwd: '', students: [], attendance: {} });
+    persistCloud();
+    e.target.reset();
+    refreshActiveSessionData();
+    renderClassesManagement();
+    toast("Class added successfully.", "ok");
+  }
+
+  window.deleteClass = function(id) {
+    if (!confirm("Delete class and all its student records permanently?")) return;
+    DB.classes = DB.classes.filter(c => c.id !== id);
+    if (activeClassId === id) activeClassId = DB.classes[0]?.id || null;
+    persistCloud();
+    refreshActiveSessionData();
+    renderClassesManagement();
+    toast("Class deleted.", "warn");
+  }
+
+  window.renderMyClassStats = function() {
+    const cls = getActiveClass();
+    const container = $('#myClassStatsContainer');
+    if (!container || !cls) return;
+    const total = cls.students.length;
+    const active = cls.students.filter(s => !s.leftDate).length;
+    const boys = cls.students.filter(s => s.gender === 'Male' && !s.leftDate).length;
+    const girls = cls.students.filter(s => s.gender === 'Female' && !s.leftDate).length;
+    container.innerHTML = `
+      <div class="bg-slate-50 border border-slate-200 p-4 rounded-2xl"><div class="text-2xl font-extrabold text-indigo-600">${active}</div><div class="text-xs font-bold text-slate-500 uppercase mt-1">Active Students</div></div>
+      <div class="bg-slate-50 border border-slate-200 p-4 rounded-2xl"><div class="text-2xl font-extrabold text-blue-600">${boys}</div><div class="text-xs font-bold text-slate-500 uppercase mt-1">Boys</div></div>
+      <div class="bg-slate-50 border border-slate-200 p-4 rounded-2xl"><div class="text-2xl font-extrabold text-pink-600">${girls}</div><div class="text-xs font-bold text-slate-500 uppercase mt-1">Girls</div></div>
+      <div class="bg-slate-50 border border-slate-200 p-4 rounded-2xl"><div class="text-2xl font-extrabold text-emerald-600">${cls.name}</div><div class="text-xs font-bold text-slate-500 uppercase mt-1">Active Class</div></div>
+    `;
+    $('#proxyUser').value = cls.proxyUser || '';
+    $('#proxyPwd').value = cls.proxyPwd || '';
+  }
+
+  window.saveProxyTeacher = function(e) {
+    e.preventDefault();
+    const cls = getActiveClass();
+    if (!cls) return;
+    cls.proxyUser = $('#proxyUser').value.trim();
+    cls.proxyPwd = $('#proxyPwd').value.trim();
+    persistCloud();
+    toast("Proxy teacher credentials saved.", "ok");
+  }
+
+  window.updateClassPassword = function(e) {
+    e.preventDefault();
+    const cls = getActiveClass();
+    if (!cls) return;
+    if ($('#cp_old').value !== (cls.password || '123')) { toast("Current password incorrect.", "err"); return; }
+    cls.password = $('#cp_new').value;
+    persistCloud();
+    e.target.reset();
+    toast("Class password updated.", "ok");
+  }
+
+  window.updateFilterDropdowns = function() {
+    const houses = DB.houses || [];
+    const houseSelect = $('#s_house');
+    if (houseSelect) {
+      houseSelect.innerHTML = `<option value="">Select House</option>` + houses.map(h => `<option value="${esc(h.name)}">${esc(h.name)}</option>`).join('');
+    }
+    const lowClass = $('#lowClassFilter');
+    if (lowClass) {
+      lowClass.innerHTML = `<option value="">All School Classes</option>` + DB.classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    }
+    const hClassTarget = $('#h_classTarget');
+    if (hClassTarget) {
+      hClassTarget.innerHTML = `<option value="ALL">All School (Common)</option>` + DB.classes.map(c => `<option value="${c.id}">Class ${c.name}</option>`).join('');
+    }
+  }
+
+  window.renderStudentsList = function() {
+    const cls = getActiveClass();
+    const container = $('#studentsTableContainer');
+    if (!container || !cls) return;
+    updateFilterDropdowns();
+    const search = $('#studentSearch')?.value.toLowerCase() || '';
+
+    const past = isPastSession() && currentRole === 'class';
+    if (past) {
+      $('#readOnlyBanner').classList.remove('hidden');
+      $('#studentFormCard').classList.add('hidden');
+      $('#uploadExcelBtn').classList.add('hidden');
+    } else {
+      $('#readOnlyBanner').classList.add('hidden');
+      $('#studentFormCard').classList.remove('hidden');
+      $('#uploadExcelBtn').classList.remove('hidden');
+    }
+
+    const list = cls.students.filter(s => {
+      if (search && !Object.values(s).some(val => String(val).toLowerCase().includes(search))) return false;
+      return true;
+    });
+
+    if (!list.length) { container.innerHTML = `<p class="text-xs text-slate-400 italic py-4 text-center">No students found in ${cls.name}.</p>`; return; }
+
+    container.innerHTML = `
+      <table class="w-full text-left text-xs">
+        <thead class="bg-slate-50 text-slate-500 uppercase">
+          <tr><th class="p-3">Roll No.</th><th class="p-3">G.R. No.</th><th class="p-3">Name</th><th class="p-3">Gender</th><th class="p-3">House</th><th class="p-3">Father</th><th class="p-3">Contacts</th><th class="p-3">Status</th>${past ? '' : '<th class="p-3 text-right">Action</th>'}</tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${list.map((s, i) => `
+            <tr>
+              <td class="p-3 font-bold text-indigo-700">${i+1}</td>
+              <td class="p-3 font-mono font-bold text-indigo-600">${esc(s.gr || '—')}</td>
+              <td class="p-3 font-bold text-slate-900">${esc(s.name)}</td>
+              <td class="p-3">${esc(s.gender)}</td>
+              <td class="p-3 font-semibold">${esc(s.house)}</td>
+              <td class="p-3">${esc(s.father)}</td>
+              <td class="p-3">${esc(s.c1)}${s.c2 ? '<br>'+esc(s.c2) : ''}</td>
+              <td class="p-3">${s.leftDate ? `<span class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded font-bold text-[10px]">Left (${fmtDate(s.leftDate)})</span>` : `<span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold text-[10px]">Active</span>`}</td>
+              ${past ? '' : `
+                <td class="p-3 text-right space-x-2">
+                  <button onclick="editStudent('${s.id}')" class="text-indigo-600 font-bold hover:underline">Edit</button>
+                  <button onclick="deleteStudent('${s.id}')" class="text-rose-600 font-bold hover:underline">Delete</button>
+                </td>
+              `}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  window.handleStudentForm = function(e) {
+    e.preventDefault();
+    if (isPastSession() && currentRole === 'class') { toast("Cannot modify past session data.", "err"); return; }
+    const cls = getActiveClass();
+    if (!cls) { toast("Please select a class first.", "err"); return; }
+    
+    const gr = $('#s_gr').value.trim();
+    const name = $('#s_name').value.trim();
+    const admitDate = $('#s_admit').value;
+
+    let missingFields = [];
+    if (!gr) missingFields.push("G.R. No.");
+    if (!name) missingFields.push("Student Name");
+    if (!admitDate) missingFields.push("Admission Date");
+
+    if (missingFields.length > 0) {
+      alert(`Please fill in the following required student fields before saving:\n• ${missingFields.join('\n• ')}`);
+      return;
+    }
+
+    const editId = $('#editStudentId').value;
+    const studentData = {
+      id: editId || uid('s'),
+      gr: gr,
+      name: name,
+      gender: $('#s_gender').value,
+      dob: $('#s_dob').value,
+      father: $('#s_father').value.trim(),
+      mother: $('#s_mother').value.trim(),
+      house: $('#s_house').value,
+      c1: $('#s_c1').value.trim(),
+      c2: $('#s_c2').value.trim(),
+      admitDate: admitDate,
+      leftDate: $('#s_left').value || ''
+    };
+
+    if (editId) {
+      const idx = cls.students.findIndex(s => s.id === editId);
+      if (idx >= 0) cls.students[idx] = { ...cls.students[idx], ...studentData };
+      toast("Student updated.", "ok");
+    } else {
+      cls.students.push(studentData);
+      toast("Student added.", "ok");
+    }
+    persistCloud();
+    resetStudentForm();
+    renderStudentsList();
+  }
+
+  window.editStudent = function(id) {
+    const cls = getActiveClass();
+    const s = cls?.students.find(x => x.id === id);
+    if (!s) return;
+    $('#editStudentId').value = s.id;
+    $('#s_gr').value = s.gr || '';
+    $('#s_name').value = s.name || '';
+    $('#s_gender').value = s.gender || '';
+    $('#s_dob').value = s.dob || '';
+    $('#s_father').value = s.father || '';
+    $('#s_mother').value = s.mother || '';
+    $('#s_house').value = s.house || '';
+    $('#s_c1').value = s.c1 || '';
+    $('#s_c2').value = s.c2 || '';
+    $('#s_admit').value = s.admitDate || '';
+    $('#s_left').value = s.leftDate || '';
+    $('#studentFormTitle').innerHTML = `<span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Edit Student (${s.name})`;
+    $('#studentSubmitBtn').textContent = '💾 Update Student';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  window.resetStudentForm = function() {
+    $('#editStudentId').value = '';
+    $('#studentFormTitle').innerHTML = `<span class="w-1.5 h-4 bg-indigo-600 rounded-full"></span>Add Student`;
+    $('#studentSubmitBtn').textContent = '💾 Save Student';
+    const form = $('#s_name')?.closest('form');
+    if (form) form.reset();
+  }
+
+  window.deleteStudent = function(id) {
+    if (isPastSession() && currentRole === 'class') { toast("Cannot modify past session data.", "err"); return; }
+    const cls = getActiveClass();
+    if (!cls || !confirm("Delete student and their attendance records?")) return;
+    cls.students = cls.students.filter(s => s.id !== id);
+    Object.keys(cls.attendance || {}).forEach(k => {
+      if (k.startsWith(id + '|')) delete cls.attendance[k];
+    });
+    persistCloud();
+    renderStudentsList();
+    toast("Student deleted.", "warn");
+  }
+
+  window.downloadExcelTemplate = function() {
+    const headers = ['G.R. No.', 'Name', 'Gender', 'DOB', 'Father', 'Mother', 'House', 'Contact 1', 'Contact 2', 'Admission Date', 'Left Date (Optional)'];
+    const sample = [['1001', 'Aarav Sharma', 'Male', '2015-05-14', 'Rakesh Sharma', 'Sunita Sharma', 'Emerald', '9876543210', '9812345678', '2026-04-01', '']];
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Students');
+    XLSX.writeFile(wb, 'Student_Template.xlsx');
+  }
+
+  window.parseExcelDate = function(val) {
+    if (!val) return '';
+    if (typeof val === 'number') {
+      const utcDays = Math.floor(val - 25569);
+      const utcValue = utcDays * 86400 * 1000;
+      const dateInfo = new Date(utcValue);
+      return !isNaN(dateInfo.getTime()) ? dateInfo.toISOString().slice(0, 10) : '';
+    }
+    const str = String(val).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    const parts = str.split(/[\/\-\.]/);
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return `${parts[0]}-${pad(parts[1])}-${pad(parts[2])}`;
+      } else {
+        let yr = parts[2];
+        if (yr.length === 2) yr = '20' + yr;
+        return `${yr}-${pad(parts[1])}-${pad(parts[0])}`;
+      }
+    }
+    const parsed = new Date(str);
+    return !isNaN(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : '';
+  }
+
+  window.handleExcelUpload = function(e) {
+    if (isPastSession() && currentRole === 'class') { toast("Cannot modify past session data.", "err"); return; }
+    const cls = getActiveClass();
+    if (!cls) { toast("Select a class first.", "err"); return; }
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      let added = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r[1]) continue;
+        cls.students.push({
+          id: uid('s'),
+          gr: String(r[0] || '').trim(),
+          name: String(r[1] || '').trim(),
+          gender: String(r[2] || '').trim(),
+          dob: parseExcelDate(r[3]),
+          father: String(r[4] || '').trim(),
+          mother: String(r[5] || '').trim(),
+          house: String(r[6] || '').trim(),
+          c1: String(r[7] || '').trim(),
+          c2: String(r[8] || '').trim(),
+          admitDate: parseExcelDate(r[9]) || new Date().toISOString().slice(0,10),
+          leftDate: parseExcelDate(r[10])
+        });
+        added++;
+      }
+      persistCloud();
+      renderStudentsList();
+      toast(`Successfully imported ${added} students.`, 'ok');
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  }
+
+  window.renderAttendanceRegister = function() {
+    const cls = getActiveClass();
+    const container = $('#registerTableContainer');
+    const statsContainer = $('#attendanceStatsSummary');
+    if (!container || !cls) return;
+
+    const moInput = $('#regMonthInput');
+    if (!moInput.value) {
+      const now = new Date();
+      moInput.value = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
+    }
+    const [y, m] = moInput.value.split('-').map(Number);
+    const days = daysInMonth(y, m);
+    const sundayHoliday = $('#sundayHolidayToggle')?.checked ?? true;
+
+    const students = cls.students;
+    if (!students.length) {
+      container.innerHTML = `<p class="text-xs text-slate-400 italic py-6 text-center">No students available in this register view.</p>`;
+      if (statsContainer) statsContainer.innerHTML = '';
+      return;
+    }
+
+    let html = `
+      <table class="border-collapse text-xs w-full">
+        <thead>
+          <tr class="bg-slate-100 text-slate-700">
+            <th class="p-2 border border-slate-300 sticky left-0 bg-slate-100 z-20 min-w-[220px] text-left">Roll & Student Name</th>
+    `;
+    for (let d = 1; d <= days; d++) {
+      const ds = dk(y, m, d);
+      const isSun = sundayHoliday && new Date(ds+'T00:00:00').getDay() === 0;
+      const isHol = (DB.holidays || []).some(h => h.date === ds && (h.classTarget === 'ALL' || h.classTarget === cls.id));
+      const headerBg = isSun || isHol ? 'bg-amber-100 text-amber-950' : 'bg-slate-100';
+      html += `<th class="p-1 border border-slate-300 w-8 text-center ${headerBg}">
+        <div>${d}</div>
+        <button onclick="markDayAllPresent('${ds}')" title="Mark all Present for this day" class="mt-0.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[9px] px-1 py-0.5 rounded font-bold shadow-sm">P</button>
+      </th>`;
+    }
+    html += `<th class="p-2 border border-slate-300 text-center font-bold">P</th><th class="p-2 border border-slate-300 text-center font-bold">A</th><th class="p-2 border border-slate-300 text-center font-bold">%</th></tr></thead><tbody>`;
+
+    students.forEach((s, idx) => {
+      let pCount = 0, aCount = 0;
+      html += `<tr><td class="p-2 border border-slate-300 font-bold sticky left-0 bg-white z-10 truncate max-w-[240px]">${idx+1}. <span class="font-mono text-indigo-600">[${esc(s.gr || '—')}]</span> ${esc(s.name)} ${s.leftDate ? '<span class="bg-rose-100 text-rose-700 px-1 py-0.5 rounded text-[9px]">Left</span>' : ''}</td>`;
+      for (let d = 1; d <= days; d++) {
+        const ds = dk(y, m, d);
+        const isSun = sundayHoliday && new Date(ds+'T00:00:00').getDay() === 0;
+        const isHol = (DB.holidays || []).some(h => h.date === ds && (h.classTarget === 'ALL' || h.classTarget === cls.id));
+        const isBeforeAdmit = s.admitDate && ds < s.admitDate;
+        const isAfterLeft = s.leftDate && ds > s.leftDate;
+
+        const key = `${s.id}|${ds}`;
+        const val = cls.attendance?.[key] || '';
+
+        if (val === 'P') pCount++;
+        if (val === 'A') aCount++;
+
+        if (isBeforeAdmit || isAfterLeft) {
+          html += `<td class="border border-slate-300 text-center bg-slate-100 text-slate-400 text-[10px]">-</td>`;
+        } else if (isSun || isHol) {
+          html += `<td class="border border-slate-300 text-center bg-amber-50 text-amber-800 font-bold text-[10px]">H</td>`;
+        } else {
+          const badgeColor = val === 'P' ? 'bg-emerald-100 text-emerald-800 font-bold' : val === 'A' ? 'bg-rose-100 text-rose-800 font-bold' : '';
+          html += `<td onclick="toggleAttendanceCell('${s.id}', '${ds}')" class="border border-slate-300 text-center cursor-pointer hover:bg-slate-100 transition ${badgeColor}">${val}</td>`;
+        }
+      }
+      const totalMarked = pCount + aCount;
+      const pct = totalMarked > 0 ? ((pCount / totalMarked) * 100).toFixed(1) : '0.0';
+      html += `<td class="p-2 border border-slate-300 text-center font-bold bg-emerald-50 text-emerald-700">${pCount}</td>`;
+      html += `<td class="p-2 border border-slate-300 text-center font-bold bg-rose-50 text-rose-700">${aCount}</td>`;
+      html += `<td class="p-2 border border-slate-300 text-center font-bold">${pct}%</td></tr>`;
+    });
+
+    html += `</tbody>`;
+
+    html += `<tfoot>`;
+    html += `<tr class="bg-indigo-50 font-bold text-indigo-900"><td class="sticky-col p-2 border">No. of Students Left (Cumulative)</td>`;
+    for (let d = 1; d <= days; d++) {
+      const ds = dk(y, m, d);
+      const leftCount = students.filter(s => s.leftDate && s.leftDate <= ds).length;
+      html += `<td class="border text-center text-[11px]">${leftCount || ''}</td>`;
+    }
+    html += `<td colspan="3" class="border"></td></tr>`;
+
+    html += `<tr class="bg-emerald-50 font-bold text-emerald-900"><td class="sticky-col p-2 border">Active Balance Strength</td>`;
+    for (let d = 1; d <= days; d++) {
+      const ds = dk(y, m, d);
+      const activeCount = students.filter(s => (!s.admitDate || s.admitDate <= ds) && (!s.leftDate || s.leftDate >= ds)).length;
+      html += `<td class="border text-center text-[11px]">${activeCount}</td>`;
+    }
+    html += `<td colspan="3" class="border"></td></tr>`;
+    html += `</tfoot></table>`;
+
+    container.innerHTML = html;
+  }
+
+  window.toggleAttendanceCell = function(studentId, dateStr) {
+    if (isPastSession() && currentRole === 'class') { toast("Class teachers cannot edit attendance in past sessions.", "err"); return; }
+    const cls = getActiveClass();
+    if (!cls) return;
+
+    if (currentRole === 'proxy') {
+      const today = new Date().toISOString().slice(0, 10);
+      if (dateStr !== today) {
+        toast("Proxy teachers can only edit attendance for the current date.", "err");
+        return;
+      }
+    }
+
+    if (!cls.attendance) cls.attendance = {};
+    const key = `${studentId}|${dateStr}`;
+    const cur = cls.attendance[key] || '';
+    const next = cur === '' ? 'P' : cur === 'P' ? 'A' : '';
+    if (next) cls.attendance[key] = next;
+    else delete cls.attendance[key];
+    persistCloud();
+    renderAttendanceRegister();
+  }
+
+  window.markDayAllPresent = function(dateStr) {
+    if (isPastSession() && currentRole === 'class') { toast("Cannot modify past session data.", "err"); return; }
+    const cls = getActiveClass();
+    if (!cls) return;
+
+    if (currentRole === 'proxy') {
+      const today = new Date().toISOString().slice(0, 10);
+      if (dateStr !== today) {
+        toast("Proxy teachers can only mark attendance for the current date.", "err");
+        return;
+      }
+    }
+
+    if (!cls.attendance) cls.attendance = {};
+    const sundayHoliday = $('#sundayHolidayToggle')?.checked ?? true;
+    const isSun = sundayHoliday && new Date(dateStr+'T00:00:00').getDay() === 0;
+    const isHol = (DB.holidays || []).some(h => h.date === dateStr && (h.classTarget === 'ALL' || h.classTarget === cls.id));
+
+    if (isSun || isHol) {
+      toast("Cannot mark attendance on holidays or Sundays.", "warn");
+      return;
+    }
+
+    cls.students.forEach(s => {
+      const isBeforeAdmit = s.admitDate && dateStr < s.admitDate;
+      const isAfterLeft = s.leftDate && dateStr > s.leftDate;
+      if (!isBeforeAdmit && !isAfterLeft) {
+        cls.attendance[`${s.id}|${dateStr}`] = 'P';
+      }
+    });
+
+    persistCloud();
+    renderAttendanceRegister();
+    toast(`Marked all active students Present for ${fmtDate(dateStr)}.`, 'ok');
+  }
+
+  window.markAllPresent = function() {
+    if (isPastSession() && currentRole === 'class') { toast("Cannot modify past session data.", "err"); return; }
+    const cls = getActiveClass();
+    if (!cls) return;
+    const moInput = $('#regMonthInput').value;
+    if (!moInput) return;
+    const [y, m] = moInput.split('-').map(Number);
+    const days = daysInMonth(y, m);
+    const sundayHoliday = $('#sundayHolidayToggle')?.checked ?? true;
+    if (!cls.attendance) cls.attendance = {};
+
+    cls.students.forEach(s => {
+      for (let d = 1; d <= days; d++) {
+        const ds = dk(y, m, d);
+        const isSun = sundayHoliday && new Date(ds+'T00:00:00').getDay() === 0;
+        const isHol = (DB.holidays || []).some(h => h.date === ds && (h.classTarget === 'ALL' || h.classTarget === cls.id));
+        const isBeforeAdmit = s.admitDate && ds < s.admitDate;
+        const isAfterLeft = s.leftDate && ds > s.leftDate;
+
+        if (!isSun && !isHol && !isBeforeAdmit && !isAfterLeft) {
+          cls.attendance[`${s.id}|${ds}`] = 'P';
+        }
+      }
+    });
+    persistCloud();
+    renderAttendanceRegister();
+    toast("Marked active students Present for the month.", "ok");
+  }
+
+  window.clearMonthAttendance = function() {
+    if (isPastSession() && currentRole === 'class') { toast("Cannot modify past session data.", "err"); return; }
+    const cls = getActiveClass();
+    if (!cls || !confirm("Clear all attendance for this month?")) return;
+    const moInput = $('#regMonthInput').value;
+    Object.keys(cls.attendance || {}).forEach(k => {
+      if (k.split('|')[1].startsWith(moInput)) delete cls.attendance[k];
+    });
+    persistCloud();
+    renderAttendanceRegister();
+    toast("Month attendance cleared.", "warn");
+  }
+
+  window.toggleSundayHoliday = function(val) {
+    DB.settings.sundayHoliday = val;
+    persistCloud();
+    renderAttendanceRegister();
+  }
+
+  window.renderHolidaysList = function() {
+    const container = $('#holidayTableContainer');
+    const holidays = (DB.holidays || []).sort((a,b) => a.date.localeCompare(b.date));
+    if (!holidays.length) { container.innerHTML = `<p class="text-xs text-slate-400 italic">No holidays configured.</p>`; return; }
+    container.innerHTML = `
+      <table class="w-full text-left text-xs">
+        <thead class="bg-slate-50 text-slate-500 uppercase">
+          <tr><th class="p-3">Date</th><th class="p-3">Reason</th><th class="p-3">Scope</th><th class="p-3 text-right">Action</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${holidays.map(h => {
+            const targetName = h.classTarget === 'ALL' ? 'All School' : (DB.classes.find(c => c.id === h.classTarget)?.name || 'Class');
+            return `
+              <tr>
+                <td class="p-3 font-bold">${fmtDate(h.date)}</td>
+                <td class="p-3">${esc(h.reason)}</td>
+                <td class="p-3"><span class="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-semibold">${esc(targetName)}</span></td>
+                <td class="p-3 text-right"><button onclick="deleteHoliday('${h.id}')" class="text-rose-600 font-bold hover:underline">Delete</button></td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  window.addHoliday = function(e) {
+    e.preventDefault();
+    if (!DB.holidays) DB.holidays = [];
+    DB.holidays.push({
+      id: uid('h'),
+      date: $('#h_date').value,
+      reason: $('#h_reason').value.trim(),
+      type: 'Festival',
+      classTarget: $('#h_classTarget').value,
+      sessionId: DB.activeSessionId
+    });
+    persistCloud();
+    e.target.reset();
+    renderHolidaysList();
+    toast("Holiday added.", "ok");
+  }
+
+  window.deleteHoliday = function(id) {
+    DB.holidays = DB.holidays.filter(h => h.id !== id);
+    persistCloud();
+    renderHolidaysList();
+    toast("Holiday removed.", "warn");
+  }
+
+  window.renderMonthlySummary = function() {
+    const cls = getActiveClass();
+    const chipsContainer = $('#summaryMonthChips');
+    const tableContainer = $('#summaryTableContainer');
+    if (!chipsContainer || !tableContainer || !cls) return;
+
+    const months = ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03'];
+    chipsContainer.innerHTML = months.map(mo => `
+      <label class="bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1.5 select-none">
+        <input type="checkbox" value="${mo}" class="summary-mo-chk" checked onchange="renderSummaryTableData()"> ${monthLabel(mo)}
+      </label>
+    `).join('');
+    renderSummaryTableData();
+  }
+
+  window.renderSummaryTableData = function() {
+    const cls = getActiveClass();
+    const container = $('#summaryTableContainer');
+    if (!container || !cls) return;
+    const selectedMonths = $$('.summary-mo-chk:checked').map(el => el.value);
+    if (!selectedMonths.length) { container.innerHTML = `<p class="text-xs text-slate-400 italic">Select at least one month.</p>`; return; }
+
+    let html = `
+      <table class="w-full text-left text-xs border-collapse">
+        <thead class="bg-slate-50 text-slate-500 uppercase">
+          <tr>
+            <th class="p-3 border">Roll & Student Name</th>
+            ${selectedMonths.map(mo => `<th class="p-3 border text-center" colspan="2">${monthLabel(mo)}</th>`).join('')}
+          </tr>
+          <tr class="bg-slate-100 text-slate-600">
+            <th class="p-2 border"></th>
+            ${selectedMonths.map(() => `<th class="p-2 border text-center">P / T</th><th class="p-2 border text-center">%</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+    `;
+
+    cls.students.forEach((s, idx) => {
+      html += `<tr><td class="p-3 border font-bold">${idx+1}. <span class="font-mono text-indigo-600">[${esc(s.gr || '—')}]</span> ${esc(s.name)}</td>`;
+      selectedMonths.forEach(mo => {
+        const [y, m] = mo.split('-').map(Number);
+        const days = daysInMonth(y, m);
+        let p = 0, t = 0;
+        for (let d = 1; d <= days; d++) {
+          const ds = dk(y, m, d);
+          const isBeforeAdmit = s.admitDate && ds < s.admitDate;
+          const isAfterLeft = s.leftDate && ds > s.leftDate;
+          if (!isBeforeAdmit && !isAfterLeft) {
+            const val = cls.attendance?.[`${s.id}|${ds}`];
+            if (val === 'P' || val === 'A') t++;
+            if (val === 'P') p++;
+          }
+        }
+        const pct = t > 0 ? ((p / t) * 100).toFixed(1) + '%' : '—';
+        html += `<td class="p-3 border text-center font-semibold">${p}/${t}</td><td class="p-3 border text-center font-extrabold text-indigo-600">${pct}</td>`;
+      });
+      html += `</tr>`;
+    });
+
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+  }
+
+  window.renderDetailedMonthlyStats = function() {
+    const cls = getActiveClass();
+    const container = $('#detailedStatTableContainer');
+    if (!container || !cls) return;
+
+    const moInput = $('#detailedStatMonthInput');
+    if (!moInput.value) {
+      const now = new Date();
+      moInput.value = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
+    }
+    const [y, m] = moInput.value.split('-').map(Number);
+    const daysInMon = daysInMonth(y, m);
+    const sundayHoliday = DB.settings?.sundayHoliday ?? true;
+
+    const nowStr = new Date().toISOString().slice(0,10);
+    const selectedMonthPrefix = moInput.value;
+    let effectiveDays = daysInMon;
+    if (nowStr.startsWith(selectedMonthPrefix)) {
+      effectiveDays = new Date(nowStr).getDate();
+      if (effectiveDays > daysInMon) effectiveDays = daysInMon;
+    } else if (selectedMonthPrefix > nowStr.slice(0,7)) {
+      effectiveDays = 0;
+    }
+
+    let workingDaysCount = 0;
+    for (let d = 1; d <= effectiveDays; d++) {
+      const ds = dk(y, m, d);
+      const isSun = sundayHoliday && new Date(ds+'T00:00:00').getDay() === 0;
+      const isHol = (DB.holidays || []).some(h => h.date === ds && (h.classTarget === 'ALL' || h.classTarget === cls.id));
+      if (!isSun && !isHol) {
+        workingDaysCount++;
+      }
+    }
+
+    let boysPresent = 0, girlsPresent = 0;
+    let boysAbsent = 0, girlsAbsent = 0;
+    let boysAdmitted = 0, girlsAdmitted = 0;
+
+    cls.students.forEach(s => {
+      if (s.admitDate && s.admitDate.startsWith(selectedMonthPrefix)) {
+        if (s.gender === 'Male') boysAdmitted++;
+        if (s.gender === 'Female') girlsAdmitted++;
+      }
+
+      for (let d = 1; d <= effectiveDays; d++) {
+        const ds = dk(y, m, d);
+        const isSun = sundayHoliday && new Date(ds+'T00:00:00').getDay() === 0;
+        const isHol = (DB.holidays || []).some(h => h.date === ds && (h.classTarget === 'ALL' || h.classTarget === cls.id));
+        const isBeforeAdmit = s.admitDate && ds < s.admitDate;
+        const isAfterLeft = s.leftDate && ds > s.leftDate;
+
+        if (!isSun && !isHol && !isBeforeAdmit && !isAfterLeft) {
+          const val = cls.attendance?.[`${s.id}|${ds}`];
+          if (val === 'P') {
+            if (s.gender === 'Male') boysPresent++;
+            if (s.gender === 'Female') girlsPresent++;
+          } else if (val === 'A') {
+            if (s.gender === 'Male') boysAbsent++;
+            if (s.gender === 'Female') girlsAbsent++;
+          }
+        }
+      }
+    });
+
+    const totalPresent = boysPresent + girlsPresent;
+    const totalAbsent = boysAbsent + girlsAbsent;
+    const totalAdmitted = boysAdmitted + girlsAdmitted;
+
+    let activeBoysCount = 0, activeGirlsCount = 0;
+    cls.students.forEach(s => {
+      let studentWd = 0;
+      for (let d = 1; d <= effectiveDays; d++) {
+        const ds = dk(y, m, d);
+        const isSun = sundayHoliday && new Date(ds+'T00:00:00').getDay() === 0;
+        const isHol = (DB.holidays || []).some(h => h.date === ds && (h.classTarget === 'ALL' || h.classTarget === cls.id));
+        const isBeforeAdmit = s.admitDate && ds < s.admitDate;
+        const isAfterLeft = s.leftDate && ds > s.leftDate;
+        if (!isSun && !isHol && !isBeforeAdmit && !isAfterLeft) studentWd++;
+      }
+      if (studentWd > 0) {
+        if (s.gender === 'Male') activeBoysCount++;
+        if (s.gender === 'Female') activeGirlsCount++;
+      }
+    });
+
+    const avgBoysAttendance = (workingDaysCount > 0 && activeBoysCount > 0) ? (boysPresent / (activeBoysCount * workingDaysCount) * 100).toFixed(2) : '0.00';
+    const avgGirlsAttendance = (workingDaysCount > 0 && activeGirlsCount > 0) ? (girlsPresent / (activeGirlsCount * workingDaysCount) * 100).toFixed(2) : '0.00';
+    const classAverageAttendance = ((parseFloat(avgBoysAttendance) + parseFloat(avgGirlsAttendance)) / 2).toFixed(2);
+
+    container.innerHTML = `
+      <div class="mb-3 text-xs font-bold text-slate-600">
+        Class: <span class="text-indigo-600">${esc(cls.name)}</span> | Month: <span class="text-indigo-600">${monthLabel(selectedMonthPrefix)}</span> | Working Days (Till Date): <span class="text-indigo-600">${workingDaysCount}</span>
+      </div>
+      <table class="w-full text-left text-xs border-collapse">
+        <thead class="bg-slate-50 text-slate-600 uppercase">
+          <tr>
+            <th class="p-2 border text-center font-extrabold text-indigo-700">Month</th>
+            <th class="p-2 border text-center">1. Boys Present</th>
+            <th class="p-2 border text-center">2. Girls Present</th>
+            <th class="p-2 border text-center bg-indigo-50 font-extrabold">3. Total Present</th>
+            <th class="p-2 border text-center">4. Boys Absent</th>
+            <th class="p-2 border text-center">5. Girls Absent</th>
+            <th class="p-2 border text-center bg-indigo-50 font-extrabold">6. Total Absent</th>
+            <th class="p-2 border text-center">7. Boys Admitted</th>
+            <th class="p-2 border text-center">8. Girls Admitted</th>
+            <th class="p-2 border text-center bg-indigo-50 font-extrabold">9. Total Admitted</th>
+            <th class="p-2 border text-center">10. Avg Att. (Boys)</th>
+            <th class="p-2 border text-center">11. Avg Att. (Girls)</th>
+            <th class="p-2 border text-center bg-emerald-50 font-extrabold">12. Class Avg Att.</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="bg-white font-semibold text-center">
+            <td class="p-3 border font-extrabold text-indigo-700 bg-slate-50">${monthLabel(selectedMonthPrefix)}</td>
+            <td class="p-3 border text-emerald-700">${boysPresent}</td>
+            <td class="p-3 border text-emerald-700">${girlsPresent}</td>
+            <td class="p-3 border font-extrabold text-indigo-700 bg-indigo-50/50">${totalPresent}</td>
+            <td class="p-3 border text-rose-700">${boysAbsent}</td>
+            <td class="p-3 border text-rose-700">${girlsAbsent}</td>
+            <td class="p-3 border font-extrabold text-rose-800 bg-indigo-50/50">${totalAbsent}</td>
+            <td class="p-3 border text-blue-700">${boysAdmitted}</td>
+            <td class="p-3 border text-blue-700">${girlsAdmitted}</td>
+            <td class="p-3 border font-extrabold text-blue-800 bg-indigo-50/50">${totalAdmitted}</td>
+            <td class="p-3 border font-bold">${avgBoysAttendance}%</td>
+            <td class="p-3 border font-bold">${avgGirlsAttendance}%</td>
+            <td class="p-3 border font-extrabold text-emerald-800 bg-emerald-50/50">${classAverageAttendance}%</td>
+          </tr>
+        </tbody>
+      </table>
+    `;
+  }
+
+  window.renderDateRangeReport = function() {
+    const drClassSel = $('#drClass');
+    if (drClassSel && (currentRole === 'master' || currentRole === 'sub_admin')) {
+      drClassSel.innerHTML = `<option value="">All Classes</option>` + DB.classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    }
+  }
+
+  window.generateDateRangeReport = function() {
+    const from = $('#drFrom').value;
+    const to = $('#drTo').value;
+    const classId = $('#drClass')?.value || '';
+    if (!from || !to) { toast("Select both From and To dates.", "err"); return; }
+
+    const classesToProcess = (currentRole === 'class' || currentRole === 'proxy') ? [getActiveClass()] : (classId ? DB.classes.filter(c => c.id === classId) : DB.classes);
+    const container = $('#drStudentContainer');
+    if (!container) return;
+
+    let rows = [];
+    classesToProcess.forEach(cls => {
+      if (!cls) return;
+      cls.students.forEach((s, idx) => {
+        let p = 0, a = 0;
+        let curr = new Date(from);
+        const endDate = new Date(to);
+        while (curr <= endDate) {
+          const ds = curr.toISOString().slice(0,10);
+          const isBeforeAdmit = s.admitDate && ds < s.admitDate;
+          const isAfterLeft = s.leftDate && ds > s.leftDate;
+          if (!isBeforeAdmit && !isAfterLeft) {
+            const val = cls.attendance?.[`${s.id}|${ds}`];
+            if (val === 'P') p++;
+            if (val === 'A') a++;
+          }
+          curr.setDate(curr.getDate() + 1);
+        }
+        const total = p + a;
+        const pct = total > 0 ? ((p / total) * 100).toFixed(1) : '0.0';
+        rows.push({ className: cls.name, roll: idx+1, gr: s.gr, name: s.name, p, a, pct });
+      });
+    });
+
+    container.innerHTML = `
+      <table class="w-full text-left text-xs">
+        <thead class="bg-slate-50 text-slate-500 uppercase">
+          <tr><th class="p-3">Class</th><th class="p-3">Roll</th><th class="p-3">G.R. No.</th><th class="p-3">Student Name</th><th class="p-3 text-center">Present</th><th class="p-3 text-center">Absent</th><th class="p-3 text-right">Percentage</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${rows.map(r => `
+            <tr>
+              <td class="p-3 font-semibold text-slate-600">${esc(r.className)}</td>
+              <td class="p-3 font-bold text-indigo-700">${r.roll}</td>
+              <td class="p-3 font-mono font-bold text-indigo-600">${esc(r.gr || '—')}</td>
+              <td class="p-3 font-bold">${esc(r.name)}</td>
+              <td class="p-3 text-center font-bold text-emerald-600">${r.p}</td>
+              <td class="p-3 text-center font-bold text-rose-600">${r.a}</td>
+              <td class="p-3 text-right font-extrabold text-indigo-600">${r.pct}%</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    $('#drClassCard').classList.remove('hidden');
+    $('#drClassContainer').innerHTML = `<p class="text-xs font-bold text-slate-700">Evaluated date range: ${fmtDate(from)} to ${fmtDate(to)} across ${classesToProcess.length} class(es).</p>`;
+  }
+
+  window.renderLowAttendance = function() {
+    const container = $('#lowAttendanceContainer');
+    if (!container) return;
+    const threshold = parseFloat($('#lowThreshold').value) || 75;
+    const classFilter = $('#lowClassFilter')?.value || '';
+
+    const classesToProcess = classFilter ? DB.classes.filter(c => c.id === classFilter) : DB.classes;
+    let defaulters = [];
+
+    classesToProcess.forEach(cls => {
+      cls.students.forEach((s, idx) => {
+        let p = 0, a = 0;
+        Object.keys(cls.attendance || {}).forEach(k => {
+          if (k.startsWith(s.id + '|')) {
+            if (cls.attendance[k] === 'P') p++;
+            if (cls.attendance[k] === 'A') a++;
+          }
+        });
+        const total = p + a;
+        const pct = total > 0 ? (p / total) * 100 : 100;
+        if (pct < threshold && total > 0) {
+          defaulters.push({ className: cls.name, roll: idx+1, gr: s.gr, name: s.name, p, a, pct: pct.toFixed(1) });
+        }
+      });
+    });
+
+    if (!defaulters.length) { container.innerHTML = `<p class="text-xs text-slate-400 italic py-4">No defaulters below ${threshold}% threshold.</p>`; return; }
+
+    container.innerHTML = `
+      <table class="w-full text-left text-xs">
+        <thead class="bg-slate-50 text-slate-500 uppercase">
+          <tr><th class="p-3">Class</th><th class="p-3">Roll</th><th class="p-3">G.R. No.</th><th class="p-3">Student Name</th><th class="p-3 text-center">Present</th><th class="p-3 text-center">Absent</th><th class="p-3 text-right">Attendance %</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${defaulters.map(d => `
+            <tr>
+              <td class="p-3 font-semibold text-slate-600">${esc(d.className)}</td>
+              <td class="p-3 font-bold text-indigo-700">${d.roll}</td>
+              <td class="p-3 font-mono font-bold text-indigo-600">${esc(d.gr || '—')}</td>
+              <td class="p-3 font-bold">${esc(d.name)}</td>
+              <td class="p-3 text-center font-bold text-emerald-600">${d.p}</td>
+              <td class="p-3 text-center font-bold text-rose-600">${d.a}</td>
+              <td class="p-3 text-right font-extrabold text-rose-600">${d.pct}%</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  window.renderConsolidatedReport = function() {
+    const tableContainer = $('#consTableContainer');
+    const overallContainer = $('#consOverallContainer');
+    if (!tableContainer) return;
+
+    let totReg = 0, totBoys = 0, totGirls = 0, totLeft = 0, totActive = 0;
+
+    tableContainer.innerHTML = `
+      <table class="w-full text-left text-xs">
+        <thead class="bg-slate-50 text-slate-500 uppercase">
+          <tr>
+            <th class="p-3">Class</th>
+            <th class="p-3 text-center">Total Registered</th>
+            <th class="p-3 text-center">Total Boys</th>
+            <th class="p-3 text-center">Total Girls</th>
+            <th class="p-3 text-center">Students Left</th>
+            <th class="p-3 text-center font-bold text-indigo-700">Active Students</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${DB.classes.map(c => {
+            const reg = c.students.length;
+            const boys = c.students.filter(s => s.gender === 'Male').length;
+            const girls = c.students.filter(s => s.gender === 'Female').length;
+            const left = c.students.filter(s => s.leftDate).length;
+            const active = reg - left;
+
+            totReg += reg; totBoys += boys; totGirls += girls; totLeft += left; totActive += active;
+
+            return `
+              <tr>
+                <td class="p-3 font-bold text-indigo-600">${esc(c.name)}</td>
+                <td class="p-3 text-center">${reg}</td>
+                <td class="p-3 text-center">${boys}</td>
+                <td class="p-3 text-center">${girls}</td>
+                <td class="p-3 text-center text-rose-600 font-semibold">${left}</td>
+                <td class="p-3 text-center font-extrabold text-indigo-700">${active}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+        <tfoot class="bg-slate-100 font-bold">
+          <tr>
+            <td class="p-3">Total School</td>
+            <td class="p-3 text-center">${totReg}</td>
+            <td class="p-3 text-center">${totBoys}</td>
+            <td class="p-3 text-center">${totGirls}</td>
+            <td class="p-3 text-center text-rose-600">${totLeft}</td>
+            <td class="p-3 text-center text-indigo-700">${totActive}</td>
+          </tr>
+        </tfoot>
+      </table>
+    `;
+    if (overallContainer) {
+      overallContainer.innerHTML = `<div class="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl text-xs font-bold text-indigo-900">Summary: ${DB.classes.length} Classes | ${totActive} Active Students Enrolled</div>`;
+    }
+  }
+
+  // Report HTML generator for Preview & Printing with visible dual logos
+  window.generateReportHTML = function(type) {
+    const schoolName = DB.school || 'SVKM SCHOOL';
+    const schoolAddr = DB.address || '';
+    const cls = getActiveClass();
+    let bodyHTML = '';
+
+    if (type === 'monthly' && cls) {
+      bodyHTML = `<h4 class="font-bold text-sm mb-3">Monthly Attendance Report - Class ${esc(cls.name)}</h4>
+        <table class="w-full text-xs border-collapse border border-slate-300">
+          <tr class="bg-slate-100"><th class="border p-2">Roll</th><th class="border p-2">G.R. No.</th><th class="border p-2">Student Name</th><th class="border p-2">Present</th><th class="border p-2">Absent</th><th class="border p-2">Percentage</th></tr>`;
+      cls.students.forEach((s, idx) => {
+        let p = 0, a = 0;
+        Object.keys(cls.attendance || {}).forEach(k => {
+          if (k.startsWith(s.id + '|')) {
+            if (cls.attendance[k] === 'P') p++;
+            if (cls.attendance[k] === 'A') a++;
+          }
+        });
+        const pct = (p+a)>0 ? ((p/(p+a))*100).toFixed(1)+'%' : '0%';
+        bodyHTML += `<tr><td class="border p-2 font-bold">${idx+1}</td><td class="border p-2 font-mono">${esc(s.gr || '—')}</td><td class="border p-2 font-bold">${esc(s.name)}</td><td class="border p-2 text-center text-emerald-600">${p}</td><td class="border p-2 text-center text-rose-600">${a}</td><td class="border p-2 text-center font-bold">${pct}</td></tr>`;
+      });
+      bodyHTML += `</table>`;
+    } else if (type === 'detailed_stats' && cls) {
+      const now = new Date();
+      const curMonthPrefix = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
+      const [y, m] = curMonthPrefix.split('-').map(Number);
+      const daysInMon = daysInMonth(y, m);
+      const sundayHoliday = DB.settings?.sundayHoliday ?? true;
+      let workingDaysCount = 0;
+      for (let d = 1; d <= new Date().getDate(); d++) {
+        const ds = dk(y, m, d);
+        const isSun = sundayHoliday && new Date(ds+'T00:00:00').getDay() === 0;
+        const isHol = (DB.holidays || []).some(h => h.date === ds && (h.classTarget === 'ALL' || h.classTarget === cls.id));
+        if (!isSun && !isHol) workingDaysCount++;
+      }
+      let bp = 0, gp = 0, ba = 0, ga = 0, badm = 0, gadm = 0;
+      cls.students.forEach(s => {
+        if (s.admitDate && s.admitDate.startsWith(curMonthPrefix)) {
+          if (s.gender === 'Male') badm++;
+          if (s.gender === 'Female') gadm++;
+        }
+        for (let d = 1; d <= new Date().getDate(); d++) {
+          const ds = dk(y, m, d);
+          const val = cls.attendance?.[`${s.id}|${ds}`];
+          if (val === 'P') { if (s.gender === 'Male') bp++; if (s.gender === 'Female') gp++; }
+          if (val === 'A') { if (s.gender === 'Male') ba++; if (s.gender === 'Female') ga++; }
+        }
+      });
+      const avgB = workingDaysCount > 0 ? (bp / (cls.students.filter(s=>s.gender==='Male').length * workingDaysCount) * 100).toFixed(2) : '0.00';
+      const avgG = workingDaysCount > 0 ? (gp / (cls.students.filter(s=>s.gender==='Female').length * workingDaysCount) * 100).toFixed(2) : '0.00';
+      const avgTotal = ((parseFloat(avgB) + parseFloat(avgG)) / 2).toFixed(2);
+
+      bodyHTML = `<h4 class="font-bold text-sm mb-3">Detailed Monthly Statistical Report - Class ${esc(cls.name)} (${monthLabel(curMonthPrefix)})</h4>
+        <table class="w-full text-xs border-collapse border border-slate-300 text-center">
+          <tr class="bg-slate-100">
+            <th class="border p-2 font-extrabold text-indigo-700">Month</th>
+            <th class="border p-2">1. Boys Pres.</th><th class="border p-2">2. Girls Pres.</th><th class="border p-2 bg-indigo-50">3. Total Pres.</th>
+            <th class="border p-2">4. Boys Abs.</th><th class="border p-2">5. Girls Abs.</th><th class="border p-2 bg-indigo-50">6. Total Abs.</th>
+            <th class="border p-2">7. Boys Adm.</th><th class="border p-2">8. Girls Adm.</th><th class="border p-2 bg-indigo-50">9. Total Adm.</th>
+            <th class="border p-2">10. Avg (Boys)</th><th class="border p-2">11. Avg (Girls)</th><th class="border p-2 bg-emerald-50">12. Class Avg</th>
+          </tr>
+          <tr>
+            <td class="border p-2 font-bold bg-slate-50">${monthLabel(curMonthPrefix)}</td>
+            <td class="border p-2">${bp}</td><td class="border p-2">${gp}</td><td class="border p-2 font-bold bg-indigo-50">${bp+gp}</td>
+            <td class="border p-2">${ba}</td><td class="border p-2">${ga}</td><td class="border p-2 font-bold bg-indigo-50">${ba+ga}</td>
+            <td class="border p-2">${badm}</td><td class="border p-2">${gadm}</td><td class="border p-2 font-bold bg-indigo-50">${badm+gadm}</td>
+            <td class="border p-2 font-bold">${avgB}%</td><td class="border p-2 font-bold">${avgG}%</td><td class="border p-2 font-bold bg-emerald-50">${avgTotal}%</td>
+          </tr>
+        </table>`;
+    } else if (type === 'class_students' && cls) {
+      bodyHTML = `<h4 class="font-bold text-sm mb-3">Student Directory - Class ${esc(cls.name)}</h4>
+        <table class="w-full text-xs border-collapse border border-slate-300">
+          <tr class="bg-slate-100"><th class="border p-2">Roll</th><th class="border p-2">G.R. No.</th><th class="border p-2">Name</th><th class="border p-2">Gender</th><th class="border p-2">Father</th><th class="border p-2">Contacts</th></tr>`;
+      cls.students.forEach((s, i) => {
+        bodyHTML += `<tr><td class="border p-2 font-bold">${i+1}</td><td class="border p-2 font-mono">${esc(s.gr || '—')}</td><td class="border p-2 font-bold">${esc(s.name)}</td><td class="border p-2">${esc(s.gender)}</td><td class="border p-2">${esc(s.father)}</td><td class="border p-2">${esc(s.c1)}${s.c2 ? ', '+esc(s.c2) : ''}</td></tr>`;
+      });
+      bodyHTML += `</table>`;
+    } else if (type === 'school_students') {
+      bodyHTML = `<h4 class="font-bold text-sm mb-3">Whole School Student Directory</h4>`;
+      DB.classes.forEach(c => {
+        bodyHTML += `<div class="font-bold text-xs text-indigo-700 mt-4 mb-2">Class: ${esc(c.name)}</div>
+          <table class="w-full text-xs border-collapse border border-slate-300 mb-3">
+            <tr class="bg-slate-100"><th class="border p-2">Roll</th><th class="border p-2">G.R. No.</th><th class="border p-2">Name</th><th class="border p-2">Gender</th><th class="border p-2">Father</th><th class="border p-2">Contacts</th></tr>`;
+        c.students.forEach((s, i) => {
+          bodyHTML += `<tr><td class="border p-2 font-bold">${i+1}</td><td class="border p-2 font-mono">${esc(s.gr || '—')}</td><td class="border p-2 font-bold">${esc(s.name)}</td><td class="border p-2">${esc(s.gender)}</td><td class="border p-2">${esc(s.father)}</td><td class="border p-2">${esc(s.c1)}${s.c2 ? ', '+esc(s.c2) : ''}</td></tr>`;
+        });
+        bodyHTML += `</table>`;
+      });
+    } else if (type === 'consolidated') {
+      bodyHTML = `<h4 class="font-bold text-sm mb-3">Consolidated School Report</h4>
+        <table class="w-full text-xs border-collapse border border-slate-300">
+          <tr class="bg-slate-100"><th class="border p-2">Class</th><th class="border p-2">Registered</th><th class="border p-2">Boys</th><th class="border p-2">Girls</th><th class="border p-2">Left</th><th class="border p-2">Active</th></tr>`;
+      DB.classes.forEach(c => {
+        const reg = c.students.length;
+        const boys = c.students.filter(s => s.gender === 'Male').length;
+        const girls = c.students.filter(s => s.gender === 'Female').length;
+        const left = c.students.filter(s => s.leftDate).length;
+        bodyHTML += `<tr><td class="border p-2 font-bold">${esc(c.name)}</td><td class="border p-2 text-center">${reg}</td><td class="border p-2 text-center">${boys}</td><td class="border p-2 text-center">${girls}</td><td class="border p-2 text-center text-rose-600">${left}</td><td class="border p-2 text-center font-bold text-indigo-600">${reg - left}</td></tr>`;
+      });
+      bodyHTML += `</table>`;
+    } else {
+      bodyHTML = `<h4 class="font-bold text-sm mb-3">Report: ${type.toUpperCase()}</h4><p class="text-xs text-slate-600">Generated successfully for SVKM School.</p>`;
+    }
+
+    const leftLogoImg = DB.logoLeft ? `<img src="${esc(DB.logoLeft)}" class="w-16 h-16 object-contain">` : `<div class="w-16 h-16 bg-slate-100 rounded flex items-center justify-center text-xl font-bold">🎓</div>`;
+    const rightLogoImg = DB.logoRight ? `<img src="${esc(DB.logoRight)}" class="w-16 h-16 object-contain">` : `<div class="w-16 h-16 bg-slate-100 rounded flex items-center justify-center text-xl font-bold">🏫</div>`;
+
+    return `
+      <div class="bg-white p-6 rounded-xl border border-slate-200">
+        <div class="flex justify-between items-center mb-4 pb-3 border-b border-slate-200">
+          <div>${leftLogoImg}</div>
+          <div class="text-center">
+            <h2 class="text-lg font-extrabold text-slate-900">${esc(schoolName)}</h2>
+            <p class="text-xs text-slate-500">${esc(schoolAddr)}</p>
+          </div>
+          <div>${rightLogoImg}</div>
+        </div>
+        ${bodyHTML}
+      </div>
+    `;
+  }
+
+  window.previewReport = function(type) {
+    $('#previewContentBody').innerHTML = generateReportHTML(type);
+    $('#printPreviewModal').classList.remove('hidden');
+  }
+
+  window.printPreviewDocument = function() {
+    window.print();
+  }
+
+  window.exportReport = function(type, format) {
+    const schoolName = DB.school || 'SVKM SCHOOL';
+    const schoolAddr = DB.address || '';
+    const cls = getActiveClass();
+
+    if (format === 'excel') {
+      const wb = XLSX.utils.book_new();
+      let aoa = [[schoolName], [schoolAddr], []];
+
+      if (type === 'monthly' && cls) {
+        aoa.push([`Monthly Attendance Report - Class ${cls.name}`]);
+        aoa.push(['Roll', 'G.R. No.', 'Student Name', 'Present', 'Absent', 'Percentage']);
+        cls.students.forEach((s, idx) => {
+          let p = 0, a = 0;
+          Object.keys(cls.attendance || {}).forEach(k => {
+            if (k.startsWith(s.id + '|')) {
+              if (cls.attendance[k] === 'P') p++;
+              if (cls.attendance[k] === 'A') a++;
+            }
+          });
+          aoa.push([idx+1, s.gr || '', s.name, p, a, (p+a)>0 ? ((p/(p+a))*100).toFixed(1)+'%' : '0%']);
+        });
+      } else if (type === 'class_students' && cls) {
+        aoa.push([`Student List - Class ${cls.name}`]);
+        aoa.push(['Roll', 'G.R. No.', 'Name', 'Gender', 'Father', 'Contacts', 'Admission Date']);
+        cls.students.forEach((s, idx) => {
+          aoa.push([idx+1, s.gr || '', s.name, s.gender, s.father, `${s.c1}${s.c2?', '+s.c2:''}`, s.admitDate]);
+        });
+      } else if (type === 'school_students') {
+        aoa.push([`Whole School Student Directory`]);
+        DB.classes.forEach(c => {
+          aoa.push([`Class: ${c.name}`]);
+          aoa.push(['Roll', 'G.R. No.', 'Name', 'Gender', 'Father', 'Contacts']);
+          c.students.forEach((s, idx) => { aoa.push([idx+1, s.gr || '', s.name, s.gender, s.father, `${s.c1}${s.c2?', '+s.c2:''}`]); });
+          aoa.push([]);
+        });
+      } else if (type === 'consolidated') {
+        aoa.push([`Consolidated School Report`]);
+        aoa.push(['Class', 'Total Registered', 'Boys', 'Girls', 'Left', 'Active']);
+        DB.classes.forEach(c => {
+          const reg = c.students.length;
+          const boys = c.students.filter(s => s.gender === 'Male').length;
+          const girls = c.students.filter(s => s.gender === 'Female').length;
+          const left = c.students.filter(s => s.leftDate).length;
+          aoa.push([c.name, reg, boys, girls, left, reg - left]);
+        });
+      }
+
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      XLSX.utils.book_append_sheet(wb, ws, 'Report');
+      XLSX.writeFile(wb, `${type}_report.xlsx`);
+      toast("Excel report downloaded.", "ok");
+    } else {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'landscape' });
+
+      doc.setFontSize(16);
+      doc.text(schoolName, 148, 15, { align: 'center' });
+      doc.setFontSize(10);
+      doc.text(schoolAddr, 148, 22, { align: 'center' });
+      doc.line(14, 26, 282, 26);
+
+      let startY = 32;
+      if (type === 'consolidated') {
+        doc.setFontSize(12);
+        doc.text("Consolidated School Report", 14, startY);
+        const body = DB.classes.map(c => [
+          c.name,
+          c.students.length,
+          c.students.filter(s => s.gender === 'Male').length,
+          c.students.filter(s => s.gender === 'Female').length,
+          c.students.filter(s => s.leftDate).length,
+          c.students.length - c.students.filter(s => s.leftDate).length
+        ]);
+        doc.autoTable({
+          startY: startY + 4,
+          head: [['Class', 'Registered', 'Boys', 'Girls', 'Left', 'Active']],
+          body: body
+        });
+      } else if (type === 'class_students' && cls) {
+        doc.setFontSize(12);
+        doc.text(`Student Directory - Class ${cls.name}`, 14, startY);
+        const body = cls.students.map((s, i) => [i+1, s.gr || '', s.name, s.gender || '', s.father || '', `${s.c1}${s.c2?', '+s.c2:''}`]);
+        doc.autoTask({
+          startY: startY + 4,
+          head: [['Roll', 'G.R.', 'Name', 'Gender', 'Father', 'Contacts']],
+          body: body
+        });
+      } else {
+        doc.setFontSize(12);
+        doc.text(`Attendance Report - ${type.toUpperCase()}`, 14, startY);
+        doc.text("Generated successfully from SVKM School Attendance Manager.", 14, startY + 8);
+      }
+
+      doc.save(`${type}_report.pdf`);
+      toast("PDF report downloaded.", "ok");
+    }
+  }
+
+  initFirebaseAndApp();
+</script>
+</body>
+</html>
